@@ -1,7 +1,7 @@
 #ifndef GAME_MWWORLD_CELLREFLIST_H
 #define GAME_MWWORLD_CELLREFLIST_H
 
-#include <list>
+#include <deque>
 
 #include "livecellref.hpp"
 
@@ -12,7 +12,7 @@ namespace MWWorld
     struct CellRefList
     {
         typedef LiveCellRef<X> LiveRef;
-        typedef std::list<LiveRef> List;
+        typedef std::deque<LiveRef> List;
         List mList;
 
         /// Search for the given reference in the given reclist from
