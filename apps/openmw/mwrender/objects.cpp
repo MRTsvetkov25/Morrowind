@@ -3,16 +3,8 @@
 #include <cmath>
 
 #include <osg/Group>
-#include <osg/Geode>
 #include <osg/UserDataContainer>
-#include <osg/Version>
 
-#include <osgParticle/ParticleSystem>
-#include <osgParticle/ParticleProcessor>
-
-#include <components/resource/scenemanager.hpp>
-
-#include <components/sceneutil/visitor.hpp>
 #include <components/sceneutil/positionattitudetransform.hpp>
 #include <components/sceneutil/unrefqueue.hpp>
 
@@ -23,64 +15,6 @@
 #include "npcanimation.hpp"
 #include "creatureanimation.hpp"
 #include "vismask.hpp"
-
-namespace
-{
-
-    /// Removes all particle systems and related nodes in a subgraph.
-    class RemoveParticlesVisitor : public osg::NodeVisitor
-    {
-    public:
-        RemoveParticlesVisitor()
-            : osg::NodeVisitor(TRAVERSE_ALL_CHILDREN)
-        { }
-
-        virtual void apply(osg::Node &node)
-        {
-            if (dynamic_cast<osgParticle::ParticleProcessor*>(&node))
-                mToRemove.push_back(&node);
-
-            traverse(node);
-        }
-
-        virtual void apply(osg::Geode& geode)
-        {
-            std::vector<osgParticle::ParticleSystem*> partsysVector;
-            for (unsigned int i=0; i<geode.getNumDrawables(); ++i)
-            {
-                osg::Drawable* drw = geode.getDrawable(i);
-                if (osgParticle::ParticleSystem* partsys = dynamic_cast<osgParticle::ParticleSystem*>(drw))
-                    partsysVector.push_back(partsys);
-            }
-
-            for (std::vector<osgParticle::ParticleSystem*>::iterator it = partsysVector.begin(); it != partsysVector.end(); ++it)
-                geode.removeDrawable(*it);
-        }
-#if OSG_VERSION_GREATER_OR_EQUAL(3,3,3)
-        virtual void apply(osg::Drawable& drw)
-        {
-            if (osgParticle::ParticleSystem* partsys = dynamic_cast<osgParticle::ParticleSystem*>(&drw))
-                mToRemove.push_back(partsys);
-        }
-#endif
-
-        void remove()
-        {
-            for (std::vector<osg::ref_ptr<osg::Node> >::iterator it = mToRemove.begin(); it != mToRemove.end(); ++it)
-            {
-                // FIXME: a Drawable might have more than one parent
-                osg::Node* node = *it;
-                if (node->getNumParents())
-                    node->getParent(0)->removeChild(node);
-            }
-            mToRemove.clear();
-        }
-
-    private:
-        std::vector<osg::ref_ptr<osg::Node> > mToRemove;
-    };
-
-}
 
 
 namespace MWRender
@@ -95,8 +29,6 @@ Objects::Objects(Resource::ResourceSystem* resourceSystem, osg::ref_ptr<osg::Gro
 
 Objects::~Objects()
 {
-    for(PtrAnimationMap::iterator iter = mObjects.begin();iter != mObjects.end();++iter)
-        delete iter->second;
     mObjects.clear();
 
     for (CellMap::iterator iter = mCellSceneNodes.begin(); iter != mCellSceneNodes.end(); ++iter)
@@ -112,6 +44,7 @@ void Objects::insertBegin(const MWWorld::Ptr& ptr)
     if (found == mCellSceneNodes.end())
     {
         cellnode = new osg::Group;
+        cellnode->setName("Cell Root");
         mRootNode->addChild(cellnode);
         mCellSceneNodes[ptr.getCell()] = cellnode;
     }
@@ -139,16 +72,9 @@ void Objects::insertModel(const MWWorld::Ptr &ptr, const std::string &mesh, bool
 {
     insertBegin(ptr);
 
-    std::auto_ptr<ObjectAnimation> anim (new ObjectAnimation(ptr, mesh, mResourceSystem, animated, allowLight));
+    osg::ref_ptr<ObjectAnimation> anim (new ObjectAnimation(ptr, mesh, mResourceSystem, animated, allowLight));
 
-    if (!allowLight)
-    {
-        RemoveParticlesVisitor visitor;
-        anim->getObjectRoot()->accept(visitor);
-        visitor.remove();
-    }
-
-    mObjects.insert(std::make_pair(ptr, anim.release()));
+    mObjects.insert(std::make_pair(ptr, anim));
 }
 
 void Objects::insertCreature(const MWWorld::Ptr &ptr, const std::string &mesh, bool weaponsShields)
@@ -157,14 +83,16 @@ void Objects::insertCreature(const MWWorld::Ptr &ptr, const std::string &mesh, b
     ptr.getRefData().getBaseNode()->setNodeMask(Mask_Actor);
 
     // CreatureAnimation
-    std::auto_ptr<Animation> anim;
+    osg::ref_ptr<Animation> anim;
 
     if (weaponsShields)
-        anim.reset(new CreatureWeaponAnimation(ptr, mesh, mResourceSystem));
+        anim = new CreatureWeaponAnimation(ptr, mesh, mResourceSystem);
     else
-        anim.reset(new CreatureAnimation(ptr, mesh, mResourceSystem));
+        anim = new CreatureAnimation(ptr, mesh, mResourceSystem);
 
-    mObjects.insert(std::make_pair(ptr, anim.release()));
+    ptr.getClass().getContainerStore(ptr).setContListener(static_cast<ActorAnimation*>(anim.get()));
+
+    mObjects.insert(std::make_pair(ptr, anim));
 }
 
 void Objects::insertNPC(const MWWorld::Ptr &ptr)
@@ -172,9 +100,12 @@ void Objects::insertNPC(const MWWorld::Ptr &ptr)
     insertBegin(ptr);
     ptr.getRefData().getBaseNode()->setNodeMask(Mask_Actor);
 
-    std::auto_ptr<NpcAnimation> anim (new NpcAnimation(ptr, osg::ref_ptr<osg::Group>(ptr.getRefData().getBaseNode()), mResourceSystem));
+    osg::ref_ptr<NpcAnimation> anim (new NpcAnimation(ptr, osg::ref_ptr<osg::Group>(ptr.getRefData().getBaseNode()), mResourceSystem));
 
-    mObjects.insert(std::make_pair(ptr, anim.release()));
+    ptr.getClass().getInventoryStore(ptr).setInvListener(anim.get(), ptr);
+    ptr.getClass().getInventoryStore(ptr).setContListener(anim.get());
+
+    mObjects.insert(std::make_pair(ptr, anim));
 }
 
 bool Objects::removeObject (const MWWorld::Ptr& ptr)
@@ -185,11 +116,17 @@ bool Objects::removeObject (const MWWorld::Ptr& ptr)
     PtrAnimationMap::iterator iter = mObjects.find(ptr);
     if(iter != mObjects.end())
     {
-        delete iter->second;
+        if (mUnrefQueue.get())
+            mUnrefQueue->push(iter->second);
+
         mObjects.erase(iter);
 
-        if (mUnrefQueue.get())
-            mUnrefQueue->push(ptr.getRefData().getBaseNode());
+        if (ptr.getClass().isNpc())
+        {
+            MWWorld::InventoryStore& store = ptr.getClass().getInventoryStore(ptr);
+            store.setInvListener(NULL, ptr);
+            store.setContListener(NULL);
+        }
 
         ptr.getRefData().getBaseNode()->getParent(0)->removeChild(ptr.getRefData().getBaseNode());
 
@@ -204,11 +141,19 @@ void Objects::removeCell(const MWWorld::CellStore* store)
 {
     for(PtrAnimationMap::iterator iter = mObjects.begin();iter != mObjects.end();)
     {
-        if(iter->first.getCell() == store)
+        MWWorld::Ptr ptr = iter->second->getPtr();
+        if(ptr.getCell() == store)
         {
             if (mUnrefQueue.get())
-                mUnrefQueue->push(iter->second->getObjectRoot());
-            delete iter->second;
+                mUnrefQueue->push(iter->second);
+
+            if (ptr.getClass().isNpc() && ptr.getRefData().getCustomData())
+            {
+                MWWorld::InventoryStore& store = ptr.getClass().getInventoryStore(ptr);
+                store.setInvListener(NULL, ptr);
+                store.setContListener(NULL);
+            }
+
             mObjects.erase(iter++);
         }
         else
@@ -257,7 +202,7 @@ void Objects::updatePtr(const MWWorld::Ptr &old, const MWWorld::Ptr &cur)
     PtrAnimationMap::iterator iter = mObjects.find(old);
     if(iter != mObjects.end())
     {
-        Animation *anim = iter->second;
+        osg::ref_ptr<Animation> anim = iter->second;
         mObjects.erase(iter);
         anim->updatePtr(cur);
         mObjects[cur] = anim;

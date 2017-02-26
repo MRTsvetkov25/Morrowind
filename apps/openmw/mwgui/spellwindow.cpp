@@ -11,6 +11,7 @@
 #include "../mwworld/inventorystore.hpp"
 #include "../mwworld/class.hpp"
 #include "../mwworld/esmstore.hpp"
+#include "../mwworld/player.hpp"
 
 #include "../mwmechanics/spellcasting.hpp"
 #include "../mwmechanics/spells.hpp"
@@ -20,6 +21,9 @@
 #include "spellicons.hpp"
 #include "confirmationdialog.hpp"
 #include "spellview.hpp"
+
+#include"../mwmp/Main.hpp"
+#include"../mwmp/LocalPlayer.hpp"
 
 namespace MWGui
 {
@@ -122,8 +126,15 @@ namespace MWGui
         const ESM::Spell* spell =
             MWBase::Environment::get().getWorld()->getStore().get<ESM::Spell>().find(spellId);
 
-        if (spell->mData.mFlags & ESM::Spell::F_Always
-            || spell->mData.mType == ESM::Spell::ST_Power)
+        MWWorld::Ptr player = MWMechanics::getPlayer();
+        std::string raceId = player.get<ESM::NPC>()->mBase->mRace;
+        const std::string& signId =
+            MWBase::Environment::get().getWorld()->getPlayer().getBirthSign();
+        const ESM::Race* race = MWBase::Environment::get().getWorld()->getStore().get<ESM::Race>().find(raceId);
+        const ESM::BirthSign* birthsign = MWBase::Environment::get().getWorld()->getStore().get<ESM::BirthSign>().find(signId);
+
+        // can't delete racial spells, birthsign spells or powers 
+        if (race->mPowers.exists(spell->mId) || birthsign->mPowers.exists(spell->mId) || spell->mData.mType == ESM::Spell::ST_Power)
         {
             MWBase::Environment::get().getWindowManager()->messageBox("#{sDeleteSpellError}");
         }
@@ -177,6 +188,11 @@ namespace MWGui
             MWBase::Environment::get().getWindowManager()->unsetSelectedSpell();
 
         spells.remove(mSpellToDelete);
+
+        // Added by tes3mp
+        //
+        // LocalPlayer has lost a spell, so send a packet with it
+        mwmp::Main::get().getLocalPlayer()->sendSpellRemoval(mSpellToDelete);
 
         updateSpells();
     }

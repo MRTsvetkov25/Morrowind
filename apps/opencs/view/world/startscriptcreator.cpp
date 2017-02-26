@@ -24,15 +24,6 @@ CSMWorld::IdTable& CSVWorld::StartScriptCreator::getStartScriptsTable() const
     );
 }
 
-void CSVWorld::StartScriptCreator::configureCreateCommand(CSMWorld::CreateCommand& command) const
-{
-    CSMWorld::IdTable& table = getStartScriptsTable();
-    int column = table.findColumnIndex(CSMWorld::Columns::ColumnId_Id);
-
-    // Set script ID to be added to start scripts table.
-    command.addValue(column, mScript->text());
-}
-
 CSVWorld::StartScriptCreator::StartScriptCreator(
     CSMWorld::Data &data,
     QUndoStack &undoStack,
@@ -53,6 +44,7 @@ CSVWorld::StartScriptCreator::StartScriptCreator(
     insertBeforeButtons(mScript, true);
 
     connect(mScript, SIGNAL (textChanged(const QString&)), this, SLOT (scriptChanged()));
+    connect(mScript, SIGNAL (returnPressed()), this, SLOT (inputReturnPressed()));
 }
 
 void CSVWorld::StartScriptCreator::cloneMode(

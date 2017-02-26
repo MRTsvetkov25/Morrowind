@@ -63,7 +63,13 @@ namespace SceneUtil
         ControllerVisitor();
 
         virtual void apply(osg::Node& node);
-        virtual void apply(osg::Geode& geode);
+
+        // Technically not required as the default implementation would trickle down to apply(Node&) anyway,
+        // but we'll shortcut instead to avoid the chain of virtual function calls
+        virtual void apply(osg::MatrixTransform& node);
+        virtual void apply(osg::Geometry& node);
+
+        void applyNode(osg::Node& node);
 
         virtual void visit(osg::Node& node, Controller& ctrl) = 0;
     };

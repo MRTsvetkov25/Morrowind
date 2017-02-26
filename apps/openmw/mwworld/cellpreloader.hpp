@@ -16,6 +16,11 @@ namespace Terrain
     class World;
 }
 
+namespace SceneUtil
+{
+    class UnrefQueue;
+}
+
 namespace MWWorld
 {
     class CellStore;
@@ -24,6 +29,7 @@ namespace MWWorld
     {
     public:
         CellPreloader(Resource::ResourceSystem* resourceSystem, Resource::BulletShapeManager* bulletShapeManager, Terrain::World* terrain);
+        ~CellPreloader();
 
         /// Ask a background thread to preload rendering meshes and collision shapes for objects in this cell.
         /// @note The cell itself must be in State_Loaded or State_Preloaded.
@@ -31,20 +37,41 @@ namespace MWWorld
 
         void notifyLoaded(MWWorld::CellStore* cell);
 
+        void clear();
+
         /// Removes preloaded cells that have not had a preload request for a while.
         void updateCache(double timestamp);
 
         /// How long to keep a preloaded cell in cache after it's no longer requested.
         void setExpiryDelay(double expiryDelay);
 
+        /// The minimum number of preloaded cells before unused cells get thrown out.
+        void setMinCacheSize(unsigned int num);
+
+        /// The maximum number of preloaded cells.
+        void setMaxCacheSize(unsigned int num);
+
+        /// Enables the creation of instances in the preloading thread.
+        void setPreloadInstances(bool preload);
+
+        unsigned int getMaxCacheSize() const;
+
         void setWorkQueue(osg::ref_ptr<SceneUtil::WorkQueue> workQueue);
+
+        void setUnrefQueue(SceneUtil::UnrefQueue* unrefQueue);
 
     private:
         Resource::ResourceSystem* mResourceSystem;
         Resource::BulletShapeManager* mBulletShapeManager;
         Terrain::World* mTerrain;
         osg::ref_ptr<SceneUtil::WorkQueue> mWorkQueue;
+        osg::ref_ptr<SceneUtil::UnrefQueue> mUnrefQueue;
         double mExpiryDelay;
+        unsigned int mMinCacheSize;
+        unsigned int mMaxCacheSize;
+        bool mPreloadInstances;
+
+        double mLastResourceCacheUpdate;
 
         struct PreloadEntry
         {

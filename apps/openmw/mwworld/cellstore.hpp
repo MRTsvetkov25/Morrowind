@@ -75,6 +75,9 @@ namespace MWWorld
             std::vector<std::string> mIds;
             float mWaterLevel;
 
+            // Added by tes3mp
+            unsigned int lastRefNumIndex;
+
             MWWorld::TimeStamp mLastRespawn;
 
             // List of refs owned by this cell
@@ -110,6 +113,9 @@ namespace MWWorld
 
             // Merged list of ref's currently in this cell - i.e. with added refs from mMovedHere, removed refs from mMovedToAnotherCell
             std::vector<LiveCellRefBase*> mMergedRefs;
+
+            // Get the Ptr for the given ref which originated from this cell (possibly moved to another cell at this point).
+            Ptr getCurrentPtr(MWWorld::LiveCellRefBase* ref);
 
             /// Moves object from the given cell to this cell.
             void moveFrom(const MWWorld::Ptr& object, MWWorld::CellStore* from);
@@ -228,6 +234,18 @@ namespace MWWorld
             Ptr searchViaActorId (int id);
             ///< Will return an empty Ptr if cell is not loaded.
 
+            Ptr searchExact (const std::string& id, unsigned int numIndex);
+            ///< Added by tes3mp and used to find an object by both its ID and its reference number
+
+            unsigned int getLastRefNumIndex() const;
+            // Added by tes3mp and used to get the last reference number in the cell
+            
+            void setLastRefNumIndex(unsigned int value);
+            // Added by tes3mp and used to record the last reference number in the cell
+
+            CellRefList<ESM::Container> *getContainers();
+            // Added by tes3mp and used to get all the containers in the cell
+
             float getWaterLevel() const;
 
             void setWaterLevel (float level);
@@ -257,6 +275,9 @@ namespace MWWorld
             {
                 if (mState != State_Loaded)
                     return false;
+
+                if (mMergedRefs.empty())
+                    return true;
 
                 mHasState = true;
 
@@ -304,6 +325,9 @@ namespace MWWorld
             {
                 if (mState != State_Loaded)
                     return false;
+
+                if (mMergedRefs.empty())
+                    return true;
 
                 mHasState = true;
 
@@ -379,7 +403,7 @@ namespace MWWorld
 
             void loadRefs();
 
-            void loadRef (ESM::CellRef& ref, bool deleted);
+            void loadRef (ESM::CellRef& ref, bool deleted, std::map<ESM::RefNum, std::string>& refNumToID);
             ///< Make case-adjustments to \a ref and insert it into the respective container.
             ///
             /// Invalid \a ref objects are silently dropped.

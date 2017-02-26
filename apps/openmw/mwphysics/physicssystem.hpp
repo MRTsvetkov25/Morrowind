@@ -70,6 +70,8 @@ namespace MWPhysics
             Actor* getActor(const MWWorld::Ptr& ptr);
             const Actor* getActor(const MWWorld::ConstPtr& ptr) const;
 
+            const Object* getObject(const MWWorld::ConstPtr& ptr) const;
+
             // Object or Actor
             void remove (const MWWorld::Ptr& ptr);
 
@@ -88,12 +90,12 @@ namespace MWPhysics
             void debugDraw();
 
             std::vector<MWWorld::Ptr> getCollisions(const MWWorld::ConstPtr &ptr, int collisionGroup, int collisionMask) const; ///< get handles this object collides with
-            osg::Vec3f traceDown(const MWWorld::Ptr &ptr, float maxHeight);
+            osg::Vec3f traceDown(const MWWorld::Ptr &ptr, const osg::Vec3f& position, float maxHeight);
 
             std::pair<MWWorld::Ptr, osg::Vec3f> getHitContact(const MWWorld::ConstPtr& actor,
                                                                const osg::Vec3f &origin,
                                                                const osg::Quat &orientation,
-                                                               float queryDistance);
+                                                               float queryDistance, std::vector<MWWorld::Ptr> targets = std::vector<MWWorld::Ptr>());
 
 
             /// Get distance from \a point to the collision shape of \a target. Uses a raycast to find where the
@@ -110,9 +112,10 @@ namespace MWPhysics
                 MWWorld::Ptr mHitObject;
             };
 
-            /// @param me Optional, a Ptr to ignore in the list of results
-            RayResult castRay(const osg::Vec3f &from, const osg::Vec3f &to, MWWorld::ConstPtr ignore = MWWorld::ConstPtr(), int mask =
-                    CollisionType_World|CollisionType_HeightMap|CollisionType_Actor|CollisionType_Door, int group=0xff) const;
+            /// @param me Optional, a Ptr to ignore in the list of results. targets are actors to filter for, ignoring all other actors.
+            RayResult castRay(const osg::Vec3f &from, const osg::Vec3f &to, MWWorld::ConstPtr ignore = MWWorld::ConstPtr(),
+                    std::vector<MWWorld::Ptr> targets = std::vector<MWWorld::Ptr>(),
+                    int mask = CollisionType_World|CollisionType_HeightMap|CollisionType_Actor|CollisionType_Door, int group=0xff) const;
 
             RayResult castSphere(const osg::Vec3f& from, const osg::Vec3f& to, float radius);
 
@@ -120,6 +123,8 @@ namespace MWPhysics
             bool getLineOfSight(const MWWorld::ConstPtr& actor1, const MWWorld::ConstPtr& actor2) const;
 
             bool isOnGround (const MWWorld::Ptr& actor);
+
+            bool canMoveToWaterSurface (const MWWorld::ConstPtr &actor, const float waterlevel);
 
             /// Get physical half extents (scaled) of the given actor.
             osg::Vec3f getHalfExtents(const MWWorld::ConstPtr& actor) const;
@@ -129,7 +134,7 @@ namespace MWPhysics
 
             /// Get the position of the collision shape for the actor. Use together with getHalfExtents() to get the collision bounds in world space.
             /// @note The collision shape's origin is in its center, so the position returned can be described as center of the actor collision box in world space.
-            osg::Vec3f getPosition(const MWWorld::ConstPtr& actor) const;
+            osg::Vec3f getCollisionObjectPosition(const MWWorld::ConstPtr& actor) const;
 
             /// Queues velocity movement for a Ptr. If a Ptr is already queued, its velocity will
             /// be overwritten. Valid until the next call to applyQueuedMovement.
@@ -196,7 +201,7 @@ namespace MWPhysics
             typedef std::map<MWWorld::Ptr, MWWorld::Ptr> CollisionMap;
             CollisionMap mStandingCollisions;
 
-            // replaces all occurences of 'old' in the map by 'updated', no matter if its a key or value
+            // replaces all occurrences of 'old' in the map by 'updated', no matter if it's a key or value
             void updateCollisionMapPtr(CollisionMap& map, const MWWorld::Ptr &old, const MWWorld::Ptr &updated);
 
             PtrVelocityList mMovementQueue;

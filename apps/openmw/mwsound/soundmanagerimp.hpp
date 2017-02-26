@@ -11,7 +11,8 @@
 
 #include <components/settings/settings.hpp>
 
-#include "loudness.hpp"
+#include <components/fallback/fallback.hpp>
+
 #include "../mwbase/soundmanager.hpp"
 
 namespace VFS
@@ -45,6 +46,8 @@ namespace MWSound
     {
         const VFS::Manager* mVFS;
 
+        Fallback::Map mFallback;
+
         std::auto_ptr<Sound_Output> mOutput;
 
         // Caches available music tracks by <playlist name, (sound files) >
@@ -56,6 +59,13 @@ namespace MWSound
         float mMusicVolume;
         float mVoiceVolume;
         float mFootstepsVolume;
+
+        int mNearWaterRadius;
+        int mNearWaterPoints;
+        float mNearWaterIndoorTolerance;
+        float mNearWaterOutdoorTolerance;
+        std::string mNearWaterIndoorID;
+        std::string mNearWaterOutdoorID;
 
         typedef std::auto_ptr<std::deque<Sound_Buffer> > SoundBufferList;
         // List of sound buffers, grown as needed. New enties are added to the
@@ -69,12 +79,6 @@ namespace MWSound
         typedef std::map<std::string,Sound_Buffer*> NameBufferMap;
         NameBufferMap mBufferNameMap;
 
-        typedef std::deque<Sound_Loudness> LoudnessList;
-        LoudnessList mVoiceLipBuffers;
-
-        typedef std::map<std::string,Sound_Loudness*> NameLoudnessRefMap;
-        NameLoudnessRefMap mVoiceLipNameMap;
-
         // NOTE: unused buffers are stored in front-newest order.
         typedef std::deque<Sound_Buffer*> SoundList;
         SoundList mUnusedBuffers;
@@ -84,13 +88,8 @@ namespace MWSound
         typedef std::map<MWWorld::ConstPtr,SoundBufferRefPairList> SoundMap;
         SoundMap mActiveSounds;
 
-        typedef std::pair<MWBase::SoundStreamPtr,Sound_Loudness*> SoundLoudnessPair;
-        typedef std::map<MWWorld::ConstPtr,SoundLoudnessPair> SaySoundMap;
+        typedef std::map<MWWorld::ConstPtr,MWBase::SoundStreamPtr> SaySoundMap;
         SaySoundMap mActiveSaySounds;
-
-        typedef std::pair<DecoderPtr,Sound_Loudness*> DecoderLoudnessPair;
-        typedef std::map<MWWorld::ConstPtr,DecoderLoudnessPair> SayDecoderMap;
-        SayDecoderMap mPendingSaySounds;
 
         typedef std::vector<MWBase::SoundStreamPtr> TrackList;
         TrackList mActiveTracks;
@@ -106,21 +105,22 @@ namespace MWSound
         int mPausedSoundTypes;
 
         MWBase::SoundPtr mUnderwaterSound;
+        MWBase::SoundPtr mNearWaterSound;
 
         Sound_Buffer *insertSound(const std::string &soundId, const ESM::Sound *sound);
 
         Sound_Buffer *lookupSound(const std::string &soundId) const;
         Sound_Buffer *loadSound(const std::string &soundId);
 
-        // Ensures the loudness/"lip" data gets loaded, and returns a decoder
-        // to start streaming
-        DecoderPtr loadVoice(const std::string &voicefile, Sound_Loudness **lipdata);
+        // returns a decoder to start streaming
+        DecoderPtr loadVoice(const std::string &voicefile);
 
         MWBase::SoundStreamPtr playVoice(DecoderPtr decoder, const osg::Vec3f &pos, bool playlocal);
 
         void streamMusicFull(const std::string& filename);
         void updateSounds(float duration);
         void updateRegionSound(float duration);
+        void updateWaterSound(float duration);
 
         float volumeFromType(PlayType type) const;
 
@@ -132,7 +132,7 @@ namespace MWSound
         friend class OpenAL_Output;
 
     public:
-        SoundManager(const VFS::Manager* vfs, bool useSound);
+        SoundManager(const VFS::Manager* vfs, const std::map<std::string, std::string>& fallbackMap, bool useSound);
         virtual ~SoundManager();
 
         virtual void processChangedSettings(const Settings::CategorySettingVector& settings);

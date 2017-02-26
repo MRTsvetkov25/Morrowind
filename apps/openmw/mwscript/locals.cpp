@@ -97,6 +97,32 @@ namespace MWScript
         return 0;
     }
 
+    float Locals::getFloatVar(const std::string &script, const std::string &var)
+    {
+        ensure (script);
+
+        const Compiler::Locals& locals = MWBase::Environment::get().getScriptManager()->getLocals(script);
+        int index = locals.getIndex(var);
+        char type = locals.getType(var);
+        if(index != -1)
+        {
+            switch(type)
+            {
+                case 's':
+                    return mShorts.at (index);
+
+                case 'l':
+                    return mLongs.at (index);
+
+                case 'f':
+                    return mFloats.at(index);
+                default:
+                    return 0;
+            }
+        }
+        return 0;
+    }
+
     bool Locals::setVarByInt(const std::string& script, const std::string& var, int val)
     {
         ensure (script);
@@ -212,15 +238,15 @@ namespace MWScript
                 else
                 {
                     char type =  declarations.getType (iter->first);
-                    char index = declarations.getIndex (iter->first);
+                    int index2 = declarations.getIndex (iter->first);
 
                     try
                     {
                         switch (type)
                         {
-                            case 's': mShorts.at (index) = iter->second.getInteger(); break;
-                            case 'l': mLongs.at (index) = iter->second.getInteger(); break;
-                            case 'f': mFloats.at (index) = iter->second.getFloat(); break;
+                            case 's': mShorts.at (index2) = iter->second.getInteger(); break;
+                            case 'l': mLongs.at (index2) = iter->second.getInteger(); break;
+                            case 'f': mFloats.at (index2) = iter->second.getFloat(); break;
 
                             // silently ignore locals that don't exist anymore
                         }

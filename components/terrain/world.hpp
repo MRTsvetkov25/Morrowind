@@ -9,6 +9,7 @@
 namespace osg
 {
     class Group;
+    class Stats;
 }
 
 namespace osgUtil
@@ -39,7 +40,11 @@ namespace Terrain
               Storage* storage, int nodeMask);
         virtual ~World();
 
+        virtual void updateTextureFiltering() {}
+
         virtual void updateCache() {}
+
+        virtual void reportStats(unsigned int frameNumber, osg::Stats* stats) {}
 
         float getHeightAt (const osg::Vec3f& worldPos);
 

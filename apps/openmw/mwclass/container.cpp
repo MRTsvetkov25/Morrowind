@@ -7,6 +7,7 @@
 #include "../mwbase/world.hpp"
 #include "../mwbase/windowmanager.hpp"
 #include "../mwbase/mechanicsmanager.hpp"
+#include "../mwbase/soundmanager.hpp"
 
 #include "../mwworld/ptr.hpp"
 #include "../mwworld/failedaction.hpp"
@@ -99,7 +100,6 @@ namespace MWClass
     {
         if(!model.empty())
             physics.addObject(ptr, model);
-        MWBase::Environment::get().getMechanicsManager()->add(ptr);
     }
 
     std::string Container::getModel(const MWWorld::ConstPtr &ptr) const
@@ -111,6 +111,11 @@ namespace MWClass
             return "meshes\\" + model;
         }
         return "";
+    }
+
+    bool Container::useAnim() const
+    {
+        return true;
     }
 
     boost::shared_ptr<MWWorld::Action> Container::activate (const MWWorld::Ptr& ptr,
@@ -136,7 +141,8 @@ namespace MWClass
         MWWorld::Ptr player = MWBase::Environment::get().getWorld ()->getPlayerPtr();
         MWWorld::InventoryStore& invStore = player.getClass().getInventoryStore(player);
 
-        bool needKey = ptr.getCellRef().getLockLevel() > 0;
+        bool isLocked = ptr.getCellRef().getLockLevel() > 0;
+        bool isTrapped = !ptr.getCellRef().getTrap().empty();
         bool hasKey = false;
         std::string keyName;
 
@@ -154,18 +160,26 @@ namespace MWClass
             }
         }
 
-        if (needKey && hasKey)
+        if ((isLocked || isTrapped) && hasKey)
         {
             MWBase::Environment::get().getWindowManager ()->messageBox (keyName + " #{sKeyUsed}");
-            unlock(ptr);
+            if(isLocked)
+                unlock(ptr);
             // using a key disarms the trap
-            ptr.getCellRef().setTrap("");
+            if(isTrapped)
+            {
+                ptr.getCellRef().setTrap("");
+                MWBase::Environment::get().getSoundManager()->playSound3D(ptr,
+                    "Disarm Trap", 1.0f, 1.0f, MWBase::SoundManager::Play_TypeSfx,
+                    MWBase::SoundManager::Play_Normal);
+                isTrapped = false;
+            }
         }
 
 
-        if (!needKey || hasKey)
+        if (!isLocked || hasKey)
         {
-            if(ptr.getCellRef().getTrap().empty())
+            if(!isTrapped)
             {
                 boost::shared_ptr<MWWorld::Action> action (new MWWorld::ActionOpen(ptr));
                 return action;
@@ -173,14 +187,14 @@ namespace MWClass
             else
             {
                 // Activate trap
-                boost::shared_ptr<MWWorld::Action> action(new MWWorld::ActionTrap(actor, ptr.getCellRef().getTrap(), ptr));
+                boost::shared_ptr<MWWorld::Action> action(new MWWorld::ActionTrap(ptr.getCellRef().getTrap(), ptr));
                 action->setSound(trapActivationSound);
                 return action;
             }
         }
         else
         {
-            boost::shared_ptr<MWWorld::Action> action(new MWWorld::FailedAction);
+            boost::shared_ptr<MWWorld::Action> action(new MWWorld::FailedAction(std::string(), ptr));
             action->setSound(lockedSound);
             return action;
         }

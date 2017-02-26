@@ -20,6 +20,13 @@ namespace MWWorld
         mCellRef.mRefNum.unset();
     }
 
+    // Added by tes3mp to allow creation of new items with RefNum indexes
+    // specific to them
+    void CellRef::setRefNumIndex(int index)
+    {
+        mCellRef.mRefNum.mIndex = index;
+    }
+
     std::string CellRef::getRefId() const
     {
         return mCellRef.mRefID;
@@ -90,6 +97,24 @@ namespace MWWorld
         {
             mChanged = true;
             mCellRef.mChargeInt = charge;
+        }
+    }
+
+    void CellRef::applyChargeRemainderToBeSubtracted(float chargeRemainder)
+    {
+        mCellRef.mChargeIntRemainder += std::abs(chargeRemainder);
+        if (mCellRef.mChargeIntRemainder > 1.0f)
+        {
+            float newChargeRemainder = (mCellRef.mChargeIntRemainder - std::floor(mCellRef.mChargeIntRemainder));
+            if (mCellRef.mChargeInt <= static_cast<int>(mCellRef.mChargeIntRemainder))
+            {
+                mCellRef.mChargeInt = 0;
+            }
+            else
+            {
+                mCellRef.mChargeInt -= static_cast<int>(mCellRef.mChargeIntRemainder);
+            }
+            mCellRef.mChargeIntRemainder = newChargeRemainder;
         }
     }
 

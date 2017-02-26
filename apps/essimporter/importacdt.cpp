@@ -75,7 +75,7 @@ namespace ESSImport
         // unsure at which point between TGTN and CRED
         if (esm.isNextSub("AADT"))
         {
-            // occured when a creature was in the middle of its attack, 44 bytes
+            // occurred when a creature was in the middle of its attack, 44 bytes
             esm.skipHSub();
         }
 
@@ -123,8 +123,13 @@ namespace ESSImport
 
         if (esm.isNextSub("ND3D"))
             esm.skipHSub();
+
+        mHasANIS = false;
         if (esm.isNextSub("ANIS"))
-            esm.skipHSub();
+        {
+            mHasANIS = true;
+            esm.getHT(mANIS);
+        }
     }
 
 }

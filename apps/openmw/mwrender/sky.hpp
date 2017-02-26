@@ -3,16 +3,17 @@
 
 #include <string>
 #include <memory>
+#include <vector>
 
 #include <osg/ref_ptr>
 #include <osg/Vec4f>
-#include <osg/PositionAttitudeTransform>
 
 namespace osg
 {
     class Group;
     class Node;
     class Material;
+    class PositionAttitudeTransform;
 }
 
 namespace osgParticle
@@ -210,7 +211,7 @@ namespace MWRender
 
         osg::Vec3f mStormDirection;
 
-        // remember some settings so we don't have to apply them again if they didnt change
+        // remember some settings so we don't have to apply them again if they didn't change
         std::string mClouds;
         std::string mNextClouds;
         float mCloudBlendFactor;

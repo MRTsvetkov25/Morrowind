@@ -2,7 +2,6 @@
 
 #include <osgDB/Registry>
 #include <osg/GLExtensions>
-#include <osg/Version>
 
 #include <components/vfs/manager.hpp>
 
@@ -14,6 +13,9 @@ USE_OSGPLUGIN(png)
 USE_OSGPLUGIN(tga)
 USE_OSGPLUGIN(dds)
 USE_OSGPLUGIN(jpeg)
+USE_OSGPLUGIN(bmp)
+USE_OSGPLUGIN(osg)
+USE_SERIALIZER_WRAPPER_LIBRARY(osg)
 #endif
 
 namespace
@@ -62,17 +64,10 @@ namespace Resource
             case(GL_COMPRESSED_RGBA_S3TC_DXT3_EXT):
             case(GL_COMPRESSED_RGBA_S3TC_DXT5_EXT):
             {
-#if OSG_VERSION_GREATER_OR_EQUAL(3,3,3)
                 osg::GLExtensions* exts = osg::GLExtensions::Get(0, false);
                 if (exts && !exts->isTextureCompressionS3TCSupported
                         // This one works too. Should it be included in isTextureCompressionS3TCSupported()? Submitted as a patch to OSG.
                         && !osg::isGLExtensionSupported(0, "GL_S3_s3tc"))
-#else
-                osg::Texture::Extensions* exts = osg::Texture::getExtensions(0, false);
-                if (exts && !exts->isTextureCompressionS3TCSupported()
-                        // This one works too. Should it be included in isTextureCompressionS3TCSupported()? Submitted as a patch to OSG.
-                        && !osg::isGLExtensionSupported(0, "GL_S3_s3tc"))
-#endif
                 {
                     std::cerr << "Error loading " << filename << ": no S3TC texture compression support installed" << std::endl;
                     return false;
@@ -129,6 +124,7 @@ namespace Resource
             }
 
             osg::Image* image = result.getImage();
+            image->setFileName(normalized);
             if (!checkSupported(image, filename))
             {
                 mCache->addEntryToObjectCache(normalized, mWarningImage);
@@ -143,6 +139,11 @@ namespace Resource
     osg::Image *ImageManager::getWarningImage()
     {
         return mWarningImage;
+    }
+
+    void ImageManager::reportStats(unsigned int frameNumber, osg::Stats *stats)
+    {
+        stats->setAttribute(frameNumber, "Image", mCache->getCacheSize());
     }
 
 }

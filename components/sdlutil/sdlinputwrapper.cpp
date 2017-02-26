@@ -89,23 +89,28 @@ InputWrapper::InputWrapper(SDL_Window* window, osg::ref_ptr<osgViewer::Viewer> v
                     if (!evt.key.repeat)
                         mKeyboardListener->keyPressed(evt.key);
 
-                    // temporary for the stats viewer
-                    if (evt.key.keysym.sym == SDLK_F3)
-                        mViewer->getEventQueue()->keyPress(osgGA::GUIEventAdapter::KEY_F3);
+                    if (evt.key.keysym.sym >= SDLK_F1 && evt.key.keysym.sym <= SDLK_F12)
+                        mViewer->getEventQueue()->keyPress(osgGA::GUIEventAdapter::KEY_F1 + (evt.key.keysym.sym - SDLK_F1));
 
                     break;
                 case SDL_KEYUP:
                     if (!evt.key.repeat)
                         mKeyboardListener->keyReleased(evt.key);
 
-                    // temporary for the stats viewer
-                    if (evt.key.keysym.sym == SDLK_F3)
-                        mViewer->getEventQueue()->keyRelease(osgGA::GUIEventAdapter::KEY_F3);
+                    if (evt.key.keysym.sym >= SDLK_F1 && evt.key.keysym.sym <= SDLK_F12)
+                        mViewer->getEventQueue()->keyRelease(osgGA::GUIEventAdapter::KEY_F1 + (evt.key.keysym.sym - SDLK_F1));
 
+                    break;
+                case SDL_TEXTEDITING:
                     break;
                 case SDL_TEXTINPUT:
                     mKeyboardListener->textInput(evt.text);
                     break;
+
+#if SDL_VERSION_ATLEAST(2, 0, 4)
+                case SDL_KEYMAPCHANGED:
+                    break;
+#endif
                 case SDL_JOYHATMOTION: //As we manage everything with GameController, don't even bother with these.
                 case SDL_JOYAXISMOTION:
                 case SDL_JOYBUTTONDOWN:

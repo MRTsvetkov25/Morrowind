@@ -8,6 +8,11 @@
 #include <components/esm/loadnpc.hpp>
 #include <components/esm/npcstate.hpp>
 
+#include "../mwmp/DedicatedPlayer.hpp"
+#include "../mwmp/Networking.hpp"
+#include "../mwmp/Main.hpp"
+#include "../mwmp/LocalPlayer.hpp"
+
 #include "../mwbase/environment.hpp"
 #include "../mwbase/world.hpp"
 #include "../mwbase/mechanicsmanager.hpp"
@@ -351,6 +356,8 @@ namespace MWClass
 
                 data->mNpcStats.setNeedRecalcDynamicStats(true);
             }
+            if (data->mNpcStats.isDead())
+                data->mNpcStats.setDeathAnimationFinished(true);
 
             // race powers
             const ESM::Race *race = MWBase::Environment::get().getWorld()->getStore().get<ESM::Race>().find(ref->mBase->mRace);
@@ -546,6 +553,9 @@ namespace MWClass
 
     void Npc::hit(const MWWorld::Ptr& ptr, float attackStrength, int type) const
     {
+        if (mwmp::Main::get().getNetworking()->isDedicatedPlayer(ptr))
+            return;
+
         MWBase::World *world = MWBase::Environment::get().getWorld();
 
         const MWWorld::Store<ESM::GameSetting> &store = world->getStore().get<ESM::GameSetting>();
@@ -554,30 +564,34 @@ namespace MWClass
         MWWorld::InventoryStore &inv = getInventoryStore(ptr);
         MWWorld::ContainerStoreIterator weaponslot = inv.getSlot(MWWorld::InventoryStore::Slot_CarriedRight);
         MWWorld::Ptr weapon = ((weaponslot != inv.end()) ? *weaponslot : MWWorld::Ptr());
-        if(!weapon.isEmpty() && weapon.getTypeName() != typeid(ESM::Weapon).name())
+        if (!weapon.isEmpty() && weapon.getTypeName() != typeid(ESM::Weapon).name())
             weapon = MWWorld::Ptr();
 
         MWMechanics::applyFatigueLoss(ptr, weapon, attackStrength);
 
         const float fCombatDistance = store.find("fCombatDistance")->getFloat();
         float dist = fCombatDistance * (!weapon.isEmpty() ?
-                               weapon.get<ESM::Weapon>()->mBase->mData.mReach :
-                               store.find("fHandToHandReach")->getFloat());
+                                        weapon.get<ESM::Weapon>()->mBase->mData.mReach :
+                                        store.find("fHandToHandReach")->getFloat());
+
+        // For AI actors, get combat targets to use in the ray cast. Only those targets will return a positive hit result.
+        std::vector<MWWorld::Ptr> targetActors;
+        if (!ptr.isEmpty() && ptr.getClass().isActor() && ptr != MWMechanics::getPlayer())
+            ptr.getClass().getCreatureStats(ptr).getAiSequence().getCombatTargets(targetActors);
 
         // TODO: Use second to work out the hit angle
-        std::pair<MWWorld::Ptr, osg::Vec3f> result = world->getHitContact(ptr, dist);
+        std::pair<MWWorld::Ptr, osg::Vec3f> result = world->getHitContact(ptr, dist, targetActors);
         MWWorld::Ptr victim = result.first;
-        osg::Vec3f hitPosition (result.second);
-        if(victim.isEmpty()) // Didn't hit anything
+        osg::Vec3f hitPosition(result.second);
+        if (victim.isEmpty()) // Didn't hit anything
             return;
 
         const MWWorld::Class &othercls = victim.getClass();
-        if(!othercls.isActor()) // Can't hit non-actors
+        if (!othercls.isActor()) // Can't hit non-actors
             return;
         MWMechanics::CreatureStats &otherstats = othercls.getCreatureStats(victim);
-        if(otherstats.isDead()) // Can't hit dead actors
+        if (otherstats.isDead()) // Can't hit dead actors
             return;
-
         if(ptr == MWMechanics::getPlayer())
             MWBase::Environment::get().getWindowManager()->setEnemy(victim);
 
@@ -587,9 +601,23 @@ namespace MWClass
 
         float hitchance = MWMechanics::getHitChance(ptr, victim, ptr.getClass().getSkill(ptr, weapskill));
 
-        if (Misc::Rng::roll0to99() >= hitchance)
+        if (ptr == MWBase::Environment::get().getWorld()->getPlayerPtr())
         {
-            othercls.onHit(victim, 0.0f, false, weapon, ptr, false);
+            mwmp::Main::get().getLocalPlayer()->attack.success = true;
+            mwmp::DedicatedPlayer *dedicatedPlayer = mwmp::Players::getPlayer(victim);
+            if (dedicatedPlayer != nullptr)
+                mwmp::Main::get().getLocalPlayer()->attack.target = dedicatedPlayer->guid;
+        }
+
+        if(Misc::Rng::roll0to99() >= hitchance)
+        {
+            if (ptr == MWBase::Environment::get().getWorld()->getPlayerPtr())
+            {
+                mwmp::Main::get().getLocalPlayer()->attack.success = false;
+                mwmp::Main::get().getLocalPlayer()->sendAttack(mwmp::Attack::MELEE);
+            }
+
+            othercls.onHit(victim, 0.0f, false, weapon, ptr, osg::Vec3f(), false);
             MWMechanics::reduceWeaponCondition(0.f, false, weapon, ptr);
             return;
         }
@@ -637,53 +665,55 @@ namespace MWClass
             damage *= store.find("fCombatKODamageMult")->getFloat();
 
         // Apply "On hit" enchanted weapons
-        std::string enchantmentName = !weapon.isEmpty() ? weapon.getClass().getEnchantment(weapon) : "";
-        if (!enchantmentName.empty())
-        {
-            const ESM::Enchantment* enchantment = MWBase::Environment::get().getWorld()->getStore().get<ESM::Enchantment>().find(
-                        enchantmentName);
-            if (enchantment->mData.mType == ESM::Enchantment::WhenStrikes)
-            {
-                MWMechanics::CastSpell cast(ptr, victim);
-                cast.mHitPosition = hitPosition;
-                cast.cast(weapon);
-            }
-        }
+        MWMechanics::applyOnStrikeEnchantment(ptr, victim, weapon, hitPosition);
 
         MWMechanics::applyElementalShields(ptr, victim);
 
         if (MWMechanics::blockMeleeAttack(ptr, victim, weapon, damage, attackStrength))
             damage = 0;
 
-        if (healthdmg && damage > 0)
-            MWBase::Environment::get().getWorld()->spawnBloodEffect(victim, hitPosition);
-
         MWMechanics::diseaseContact(victim, ptr);
 
-        othercls.onHit(victim, damage, healthdmg, weapon, ptr, true);
+        othercls.onHit(victim, damage, healthdmg, weapon, ptr, hitPosition, true);
     }
 
-    void Npc::onHit(const MWWorld::Ptr &ptr, float damage, bool ishealth, const MWWorld::Ptr &object, const MWWorld::Ptr &attacker, bool successful) const
+    void Npc::onHit(const MWWorld::Ptr &ptr, float damage, bool ishealth, const MWWorld::Ptr &object, const MWWorld::Ptr &attacker, const osg::Vec3f &hitPosition, bool successful) const
     {
         MWBase::SoundManager *sndMgr = MWBase::Environment::get().getSoundManager();
-
-        // NOTE: 'object' and/or 'attacker' may be empty.
-
-        bool wasDead = getCreatureStats(ptr).isDead();
+        MWMechanics::CreatureStats& stats = ptr.getClass().getCreatureStats(ptr);
+        bool wasDead = stats.isDead();
 
         // Note OnPcHitMe is not set for friendly hits.
         bool setOnPcHitMe = true;
-        if (!attacker.isEmpty() && !ptr.getClass().getCreatureStats(ptr).getAiSequence().isInCombat(attacker))
-        {
-            getCreatureStats(ptr).setAttacked(true);
 
+        // NOTE: 'object' and/or 'attacker' may be empty.
+        if (!attacker.isEmpty() && attacker.getClass().isActor() && !stats.getAiSequence().isInCombat(attacker))
+        {
+            stats.setAttacked(true);
             setOnPcHitMe = MWBase::Environment::get().getMechanicsManager()->actorAttacked(ptr, attacker);
         }
 
-        if(!object.isEmpty())
-            getCreatureStats(ptr).setLastHitAttemptObject(object.getCellRef().getRefId());
+        // Attacker and target store each other as hitattemptactor if they have no one stored yet
+        if (!attacker.isEmpty() && attacker.getClass().isActor() && !ptr.isEmpty() && ptr.getClass().isActor())
+        {
+            MWMechanics::CreatureStats& statsAttacker = attacker.getClass().getCreatureStats(attacker);
+            // First handle the attacked actor
+            if ((stats.getHitAttemptActorId() == -1)
+                && (statsAttacker.getAiSequence().isInCombat(ptr)
+                    || attacker == MWMechanics::getPlayer()))
+                stats.setHitAttemptActorId(statsAttacker.getActorId());
 
-        if(setOnPcHitMe && !attacker.isEmpty() && attacker == MWMechanics::getPlayer())
+            // Next handle the attacking actor
+            if ((statsAttacker.getHitAttemptActorId() == -1)
+                && (statsAttacker.getAiSequence().isInCombat(ptr)
+                    || attacker == MWMechanics::getPlayer()))
+                statsAttacker.setHitAttemptActorId(stats.getActorId());
+        }
+
+        if (!object.isEmpty())
+            stats.setLastHitAttemptObject(object.getCellRef().getRefId());
+
+        if (setOnPcHitMe && !attacker.isEmpty() && attacker == MWMechanics::getPlayer())
         {
             const std::string &script = ptr.getClass().getScript(ptr);
             /* Set the OnPCHitMe script variable. The script is responsible for clearing it. */
@@ -691,15 +721,15 @@ namespace MWClass
                 ptr.getRefData().getLocals().setVarByInt(script, "onpchitme", 1);
         }
 
-        if(!successful)
+        if (!successful)
         {
             // Missed
             sndMgr->playSound3D(ptr, "miss", 1.0f, 1.0f);
             return;
         }
 
-        if(!object.isEmpty())
-            getCreatureStats(ptr).setLastHitObject(object.getCellRef().getRefId());
+        if (!object.isEmpty())
+            stats.setLastHitObject(object.getCellRef().getRefId());
 
 
         if (damage > 0.0f && !object.isEmpty())
@@ -708,7 +738,7 @@ namespace MWClass
         if (damage < 0.001f)
             damage = 0;
 
-        if(damage > 0.0f && !attacker.isEmpty())
+        if (damage > 0.0f && !attacker.isEmpty())
         {
             // 'ptr' is losing health. Play a 'hit' voiced dialog entry if not already saying
             // something, alert the character controller, scripts, etc.
@@ -718,23 +748,25 @@ namespace MWClass
 
             int chance = store.get<ESM::GameSetting>().find("iVoiceHitOdds")->getInt();
             if (Misc::Rng::roll0to99() < chance)
-            {
                 MWBase::Environment::get().getDialogueManager()->say(ptr, "hit");
-            }
 
             // Check for knockdown
-            float agilityTerm = getCreatureStats(ptr).getAttribute(ESM::Attribute::Agility).getModified() * gmst.fKnockDownMult->getFloat();
-            float knockdownTerm = getCreatureStats(ptr).getAttribute(ESM::Attribute::Agility).getModified()
+            float agilityTerm = stats.getAttribute(ESM::Attribute::Agility).getModified() * gmst.fKnockDownMult->getFloat();
+            float knockdownTerm = stats.getAttribute(ESM::Attribute::Agility).getModified()
                     * gmst.iKnockDownOddsMult->getInt() * 0.01f + gmst.iKnockDownOddsBase->getInt();
-            if (ishealth && agilityTerm <= damage && knockdownTerm <= Misc::Rng::roll0to99())
-            {
-                getCreatureStats(ptr).setKnockedDown(true);
 
-            }
+            mwmp::DedicatedPlayer *dedicatedPlayer = mwmp::Players::getPlayer(attacker);
+            bool isDedicated = dedicatedPlayer != nullptr;
+            bool _knockdown = false;
+            if(isDedicated)
+                _knockdown = dedicatedPlayer->attack.knockdown;
+
+            if ((!isDedicated && ishealth && agilityTerm <= damage && knockdownTerm <= Misc::Rng::roll0to99()) || _knockdown)
+                stats.setKnockedDown(true);
             else
-                getCreatureStats(ptr).setHitRecovery(true); // Is this supposed to always occur?
+                stats.setHitRecovery(true); // Is this supposed to always occur?
 
-            if(damage > 0 && ishealth)
+            if (damage > 0 && ishealth)
             {
                 // Hit percentages:
                 // cuirass = 30%
@@ -796,26 +828,28 @@ namespace MWClass
             }
         }
 
-        if(ishealth)
+        if (ishealth)
         {
             if (!attacker.isEmpty())
                 damage = scaleDamage(damage, attacker, ptr);
 
-            if(damage > 0.0f)
+            if (damage > 0.0f)
             {
                 sndMgr->playSound3D(ptr, "Health Damage", 1.0f, 1.0f);
                 if (ptr == MWMechanics::getPlayer())
                     MWBase::Environment::get().getWindowManager()->activateHitOverlay();
+                if (!attacker.isEmpty())
+                    MWBase::Environment::get().getWorld()->spawnBloodEffect(ptr, hitPosition);
             }
             MWMechanics::DynamicStat<float> health(getCreatureStats(ptr).getHealth());
             health.setCurrent(health.getCurrent() - damage);
-            getCreatureStats(ptr).setHealth(health);
+            stats.setHealth(health);
         }
         else
         {
             MWMechanics::DynamicStat<float> fatigue(getCreatureStats(ptr).getFatigue());
             fatigue.setCurrent(fatigue.getCurrent() - damage, true);
-            getCreatureStats(ptr).setFatigue(fatigue);
+            stats.setFatigue(fatigue);
         }
 
         if (!wasDead && getCreatureStats(ptr).isDead())
@@ -828,11 +862,31 @@ namespace MWClass
 
             MWBase::Environment::get().getMechanicsManager()->actorKilled(ptr, attacker);
         }
+
+
+        mwmp::DedicatedPlayer *victimPlayer = mwmp::Players::getPlayer(ptr);
+        if (attacker == MWMechanics::getPlayer() && victimPlayer != nullptr)
+        {
+            mwmp::Attack *attack = &mwmp::Main::get().getLocalPlayer()->attack;
+            attack->damage = damage;
+            attack->attacker = mwmp::Main::get().getLocalPlayer()->guid;
+            attack->target = victimPlayer->guid;
+            attack->knockdown = getCreatureStats(ptr).getKnockedDown();
+            mwmp::Main::get().getLocalPlayer()->sendAttack(mwmp::Attack::MELEE); // todo: make this sensitive to different weapon types
+        }
+
+        if (ptr == MWMechanics::getPlayer())
+        {
+            mwmp::Main::get().getLocalPlayer()->updateDynamicStats(true);
+            mwmp::Main::get().getLocalPlayer()->updatePosition(true); // fix position after getting damage;
+        }
     }
 
     boost::shared_ptr<MWWorld::Action> Npc::activate (const MWWorld::Ptr& ptr,
         const MWWorld::Ptr& actor) const
     {
+        if (actor == MWMechanics::getPlayer() && mwmp::Main::get().getNetworking()->isDedicatedPlayer(ptr))
+            return boost::shared_ptr<MWWorld::Action>(new MWWorld::FailedAction("Not implemented."));
         // player got activated by another NPC
         if(ptr == MWMechanics::getPlayer())
             return boost::shared_ptr<MWWorld::Action>(new MWWorld::ActionTalk(actor));
@@ -1079,14 +1133,14 @@ namespace MWClass
         float fUnarmoredBase2 = store.find("fUnarmoredBase2")->getFloat();
         int unarmoredSkill = stats.getSkill(ESM::Skill::Unarmored).getModified();
 
-        int ratings[MWWorld::InventoryStore::Slots];
+        float ratings[MWWorld::InventoryStore::Slots];
         for(int i = 0;i < MWWorld::InventoryStore::Slots;i++)
         {
             MWWorld::ContainerStoreIterator it = invStore.getSlot(i);
             if (it == invStore.end() || it->getTypeName() != typeid(ESM::Armor).name())
             {
                 // unarmored
-                ratings[i] = static_cast<int>((fUnarmoredBase1 * unarmoredSkill) * (fUnarmoredBase2 * unarmoredSkill));
+                ratings[i] = (fUnarmoredBase1 * unarmoredSkill) * (fUnarmoredBase2 * unarmoredSkill);
             }
             else
             {
@@ -1303,20 +1357,31 @@ namespace MWClass
 
     void Npc::respawn(const MWWorld::Ptr &ptr) const
     {
-        if (ptr.get<ESM::NPC>()->mBase->mFlags & ESM::NPC::Respawn)
+        const MWMechanics::CreatureStats& creatureStats = ptr.getClass().getCreatureStats(ptr);
+        if (ptr.getRefData().getCount() > 0 && !creatureStats.isDead())
+            return;
+
+        const MWWorld::Store<ESM::GameSetting>& gmst = MWBase::Environment::get().getWorld()->getStore().get<ESM::GameSetting>();
+        static const float fCorpseRespawnDelay = gmst.find("fCorpseRespawnDelay")->getFloat();
+        static const float fCorpseClearDelay = gmst.find("fCorpseClearDelay")->getFloat();
+
+        float delay = ptr.getRefData().getCount() == 0 ? fCorpseClearDelay : std::min(fCorpseRespawnDelay, fCorpseClearDelay);
+
+        if (ptr.get<ESM::NPC>()->mBase->mFlags & ESM::NPC::Respawn
+                && creatureStats.getTimeOfDeath() + delay <= MWBase::Environment::get().getWorld()->getTimeStamp())
         {
-            // Note we do not respawn moved references in the cell they were moved to. Instead they are respawned in the original cell.
-            // This also means we cannot respawn dynamically placed references with no content file connection.
             if (ptr.getCellRef().hasContentFile())
             {
                 if (ptr.getRefData().getCount() == 0)
                     ptr.getRefData().setCount(1);
 
-                // Reset to original position
-                ptr.getRefData().setPosition(ptr.getCellRef().getPosition());
-
                 MWBase::Environment::get().getWorld()->removeContainerScripts(ptr);
                 ptr.getRefData().setCustomData(NULL);
+
+                // Reset to original position
+                MWBase::Environment::get().getWorld()->moveObject(ptr, ptr.getCellRef().getPosition().pos[0],
+                        ptr.getCellRef().getPosition().pos[1],
+                        ptr.getCellRef().getPosition().pos[2]);
             }
         }
     }

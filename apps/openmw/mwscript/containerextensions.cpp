@@ -6,6 +6,9 @@
 
 #include <MyGUI_LanguageManager.h>
 
+#include "../mwmp/Main.hpp"
+#include "../mwmp/LocalPlayer.hpp"
+
 #include <components/compiler/extensions.hpp>
 #include <components/compiler/opcodes.hpp>
 
@@ -67,6 +70,11 @@ namespace MWScript
                     // Spawn a messagebox (only for items added to player's inventory and if player is talking to someone)
                     if (ptr == MWBase::Environment::get().getWorld ()->getPlayerPtr() )
                     {
+                        // Added by tes3mp
+                        //
+                        // LocalPlayer's inventory has changed, so send a packet with it
+                        mwmp::Main::get().getLocalPlayer()->sendInventory();
+
                         // The two GMST entries below expand to strings informing the player of what, and how many of it has been added to their inventory
                         std::string msgBox;
                         std::string itemName = itemPtr.getClass().getName(itemPtr);
@@ -102,7 +110,7 @@ namespace MWScript
                             || ::Misc::StringUtils::ciEqual(item, "gold_025")
                             || ::Misc::StringUtils::ciEqual(item, "gold_100"))
                         item = "gold_001";
-                    
+
                     MWWorld::ContainerStore& store = ptr.getClass().getContainerStore (ptr);
 
                     runtime.push (store.count(item));
@@ -136,7 +144,7 @@ namespace MWScript
                             || ::Misc::StringUtils::ciEqual(item, "gold_025")
                             || ::Misc::StringUtils::ciEqual(item, "gold_100"))
                         item = "gold_001";
-                        
+
                     MWWorld::ContainerStore& store = ptr.getClass().getContainerStore (ptr);
 
                     std::string itemName;
@@ -188,7 +196,11 @@ namespace MWScript
                             break;
                     }
                     if (it == invStore.end())
-                        throw std::runtime_error("Item to equip not found");
+                    {
+                        it = ptr.getClass().getContainerStore (ptr).add (item, 1, ptr);
+                        std::cerr << "Implicitly adding one " << item << " to container "
+                            "to fulfil requirements of Equip instruction" << std::endl;
+                    }
 
                     if (ptr == MWBase::Environment::get().getWorld()->getPlayerPtr())
                         MWBase::Environment::get().getWindowManager()->useItem(*it);
@@ -317,7 +329,7 @@ namespace MWScript
                          it != invStore.end(); ++it)
                     {
                         if (::Misc::StringUtils::ciEqual(it->getCellRef().getSoul(), name))
-                            ++count;
+                            count += it->getRefData().getCount();
                     }
                     runtime.push(count);
                 }

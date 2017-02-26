@@ -2,7 +2,7 @@
 
 #include <memory>
 
-#include <osg/UserDataContainer>
+#include <osg/Material>
 
 #include <OpenThreads/ScopedLock>
 
@@ -17,9 +17,7 @@
 #include <components/esm/loadland.hpp>
 
 #include <osg/Geometry>
-#include <osg/Geode>
 #include <osg/KdTree>
-#include <osg/Version>
 
 #include <osgFX/Effect>
 
@@ -51,12 +49,16 @@ namespace
 namespace Terrain
 {
 
-TerrainGrid::TerrainGrid(osg::Group* parent, Resource::ResourceSystem* resourceSystem, osgUtil::IncrementalCompileOperation* ico, Storage* storage, int nodeMask, SceneUtil::UnrefQueue* unrefQueue)
+TerrainGrid::TerrainGrid(osg::Group* parent, Resource::ResourceSystem* resourceSystem, osgUtil::IncrementalCompileOperation* ico, Storage* storage, int nodeMask, Shader::ShaderManager* shaderManager, SceneUtil::UnrefQueue* unrefQueue)
     : Terrain::World(parent, resourceSystem, ico, storage, nodeMask)
     , mNumSplits(4)
     , mCache((storage->getCellVertices()-1)/static_cast<float>(mNumSplits) + 1)
     , mUnrefQueue(unrefQueue)
+    , mShaderManager(shaderManager)
 {
+    osg::ref_ptr<osg::Material> material (new osg::Material);
+    material->setColorMode(osg::Material::AMBIENT_AND_DIFFUSE);
+    mTerrainRoot->getOrCreateStateSet()->setAttributeAndModes(material, osg::StateAttribute::ON);
 }
 
 TerrainGrid::~TerrainGrid()
@@ -149,11 +151,17 @@ osg::ref_ptr<osg::Node> TerrainGrid::buildTerrain (osg::Group* parent, float chu
         osg::ref_ptr<osg::Node> textureCompileDummy (new osg::Node);
         unsigned int dummyTextureCounter = 0;
 
-        std::vector<osg::ref_ptr<osg::Texture2D> > layerTextures;
+        bool useShaders = mResourceSystem->getSceneManager()->getForceShaders();
+        if (!mResourceSystem->getSceneManager()->getClampLighting())
+            useShaders = true; // always use shaders when lighting is unclamped, this is to avoid lighting seams between a terrain chunk with normal maps and one without normal maps
+        std::vector<TextureLayer> layers;
         {
             OpenThreads::ScopedLock<OpenThreads::Mutex> lock(mTextureCacheMutex);
             for (std::vector<LayerInfo>::const_iterator it = layerList.begin(); it != layerList.end(); ++it)
             {
+                TextureLayer textureLayer;
+                textureLayer.mParallax = it->mParallax;
+                textureLayer.mSpecular = it->mSpecular;
                 osg::ref_ptr<osg::Texture2D> texture = mTextureCache[it->mDiffuseMap];
                 if (!texture)
                 {
@@ -163,8 +171,28 @@ osg::ref_ptr<osg::Node> TerrainGrid::buildTerrain (osg::Group* parent, float chu
                     mResourceSystem->getSceneManager()->applyFilterSettings(texture);
                     mTextureCache[it->mDiffuseMap] = texture;
                 }
-                layerTextures.push_back(texture);
-                textureCompileDummy->getOrCreateStateSet()->setTextureAttributeAndModes(dummyTextureCounter++, layerTextures.back());
+                textureLayer.mDiffuseMap = texture;
+                textureCompileDummy->getOrCreateStateSet()->setTextureAttributeAndModes(dummyTextureCounter++, texture);
+
+                if (!it->mNormalMap.empty())
+                {
+                    texture = mTextureCache[it->mNormalMap];
+                    if (!texture)
+                    {
+                        texture = new osg::Texture2D(mResourceSystem->getImageManager()->getImage(it->mNormalMap));
+                        texture->setWrap(osg::Texture::WRAP_S, osg::Texture::REPEAT);
+                        texture->setWrap(osg::Texture::WRAP_T, osg::Texture::REPEAT);
+                        mResourceSystem->getSceneManager()->applyFilterSettings(texture);
+                        mTextureCache[it->mNormalMap] = texture;
+                    }
+                    textureCompileDummy->getOrCreateStateSet()->setTextureAttributeAndModes(dummyTextureCounter++, texture);
+                    textureLayer.mNormalMap = texture;
+                }
+
+                if (it->requiresShaders())
+                    useShaders = true;
+
+                layers.push_back(textureLayer);
             }
         }
 
@@ -176,7 +204,6 @@ osg::ref_ptr<osg::Node> TerrainGrid::buildTerrain (osg::Group* parent, float chu
             texture->setWrap(osg::Texture::WRAP_S, osg::Texture::CLAMP_TO_EDGE);
             texture->setWrap(osg::Texture::WRAP_T, osg::Texture::CLAMP_TO_EDGE);
             texture->setResizeNonPowerOfTwoHint(false);
-            texture->getOrCreateUserDataContainer()->addDescription("dont_override_filter");
             blendmapTextures.push_back(texture);
 
             textureCompileDummy->getOrCreateStateSet()->setTextureAttributeAndModes(dummyTextureCounter++, blendmapTextures.back());
@@ -187,19 +214,14 @@ osg::ref_ptr<osg::Node> TerrainGrid::buildTerrain (osg::Group* parent, float chu
             geometry->setTexCoordArray(i, mCache.getUVBuffer());
 
         float blendmapScale = ESM::Land::LAND_TEXTURE_SIZE*chunkSize;
-        osg::ref_ptr<osgFX::Effect> effect (new Terrain::Effect(layerTextures, blendmapTextures, blendmapScale, blendmapScale));
+        osg::ref_ptr<osgFX::Effect> effect (new Terrain::Effect(mShaderManager ? useShaders : false, mResourceSystem->getSceneManager()->getForcePerPixelLighting(), mResourceSystem->getSceneManager()->getClampLighting(),
+                                                                mShaderManager, layers, blendmapTextures, blendmapScale, blendmapScale));
 
         effect->addCullCallback(new SceneUtil::LightListCallback);
 
         transform->addChild(effect);
 
-#if OSG_VERSION_GREATER_OR_EQUAL(3,3,3)
         osg::Node* toAttach = geometry.get();
-#else
-        osg::ref_ptr<osg::Geode> geode (new osg::Geode);
-        geode->addDrawable(geometry);
-        osg::Node* toAttach = geode.get();
-#endif
 
         effect->addChild(toAttach);
 
@@ -282,6 +304,25 @@ void TerrainGrid::updateCache()
             else
                 ++it;
         }
+    }
+}
+
+void TerrainGrid::updateTextureFiltering()
+{
+    OpenThreads::ScopedLock<OpenThreads::Mutex> lock(mTextureCacheMutex);
+    for (TextureCache::iterator it = mTextureCache.begin(); it != mTextureCache.end(); ++it)
+        mResourceSystem->getSceneManager()->applyFilterSettings(it->second);
+}
+
+void TerrainGrid::reportStats(unsigned int frameNumber, osg::Stats *stats)
+{
+    {
+        OpenThreads::ScopedLock<OpenThreads::Mutex> lock(mGridCacheMutex);
+        stats->setAttribute(frameNumber, "Terrain Cell", mGridCache.size());
+    }
+    {
+        OpenThreads::ScopedLock<OpenThreads::Mutex> lock(mTextureCacheMutex);
+        stats->setAttribute(frameNumber, "Terrain Texture", mTextureCache.size());
     }
 }
 

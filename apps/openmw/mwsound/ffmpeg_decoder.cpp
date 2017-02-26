@@ -242,6 +242,10 @@ void FFmpeg_Decoder::open(const std::string &fname)
     }
     catch(std::exception&)
     {
+        if(mStream)
+            avcodec_close((*mStream)->codec);
+        mStream = NULL;
+
         if (mFormatCtx->pb->buffer != NULL)
         {
           av_free(mFormatCtx->pb->buffer);
@@ -387,16 +391,6 @@ void FFmpeg_Decoder::readAll(std::vector<char> &output)
         const char *inbuf = reinterpret_cast<char*>(mFrameData[0]);
         output.insert(output.end(), inbuf, inbuf+got);
     }
-}
-
-void FFmpeg_Decoder::rewind()
-{
-    int stream_idx = mStream - mFormatCtx->streams;
-    if(av_seek_frame(mFormatCtx, stream_idx, 0, 0) < 0)
-        fail("Failed to seek in audio stream");
-    av_free_packet(&mPacket);
-    mFrameSize = mFramePos = 0;
-    mNextPts = 0.0;
 }
 
 size_t FFmpeg_Decoder::getSampleOffset()

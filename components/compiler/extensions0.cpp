@@ -48,7 +48,7 @@ namespace Compiler
             extensions.registerFunction ("getaipackagedone", 'l', "", opcodeGetAiPackageDone,
                 opcodeGetAiPackageDoneExplicit);
             extensions.registerFunction ("getcurrentaipackage", 'l', "", opcodeGetCurrentAiPackage,
-                opcodeGetAiPackageDoneExplicit);
+                opcodeGetCurrentAiPackageExplicit);
             extensions.registerFunction ("getdetected", 'l', "c", opcodeGetDetected,
                 opcodeGetDetectedExplicit);
             extensions.registerInstruction ("sethello", "l", opcodeSetHello, opcodeSetHelloExplicit);
@@ -59,8 +59,8 @@ namespace Compiler
             extensions.registerInstruction ("modfight", "l", opcodeModFight, opcodeModFightExplicit);
             extensions.registerInstruction ("modflee", "l", opcodeModFlee, opcodeModFleeExplicit);
             extensions.registerInstruction ("modalarm", "l", opcodeModAlarm, opcodeModAlarmExplicit);
-            extensions.registerInstruction ("toggleai", "", opcodeToggleAI, opcodeToggleAI);
-            extensions.registerInstruction ("tai", "", opcodeToggleAI, opcodeToggleAI);
+            extensions.registerInstruction ("toggleai", "", opcodeToggleAI);
+            extensions.registerInstruction ("tai", "", opcodeToggleAI);
             extensions.registerInstruction("startcombat", "c", opcodeStartCombat, opcodeStartCombatExplicit);
             extensions.registerInstruction("stopcombat", "x", opcodeStopCombat, opcodeStopCombatExplicit);
             extensions.registerFunction ("gethello", 'l', "", opcodeGetHello, opcodeGetHelloExplicit);
@@ -70,7 +70,7 @@ namespace Compiler
             extensions.registerFunction ("getlineofsight", 'l', "c", opcodeGetLineOfSight, opcodeGetLineOfSightExplicit);
             extensions.registerFunction ("getlos", 'l', "c", opcodeGetLineOfSight, opcodeGetLineOfSightExplicit);
             extensions.registerFunction("gettarget", 'l', "c", opcodeGetTarget, opcodeGetTargetExplicit);
-            extensions.registerInstruction("face", "llX", opcodeFace, opcodeFaceExplicit);
+            extensions.registerInstruction("face", "ffX", opcodeFace, opcodeFaceExplicit);
         }
     }
 
@@ -300,6 +300,7 @@ namespace Compiler
             extensions.registerInstruction ("disableteleporting", "", opcodeDisableTeleporting);
             extensions.registerInstruction ("enableteleporting", "", opcodeEnableTeleporting);
             extensions.registerInstruction ("showvars", "", opcodeShowVars, opcodeShowVarsExplicit);
+            extensions.registerInstruction ("show", "c", opcodeShow, opcodeShowExplicit);
             extensions.registerInstruction ("sv", "", opcodeShowVars, opcodeShowVarsExplicit);
             extensions.registerInstruction("tgm", "", opcodeToggleGodMode);
             extensions.registerInstruction("togglegodmode", "", opcodeToggleGodMode);
@@ -311,6 +312,8 @@ namespace Compiler
             extensions.registerInstruction ("betacomment", "/S", opcodeBetaComment, opcodeBetaCommentExplicit);
             extensions.registerInstruction ("bc", "/S", opcodeBetaComment, opcodeBetaCommentExplicit);
             extensions.registerInstruction ("ori", "/S", opcodeBetaComment, opcodeBetaCommentExplicit); // 'ori' stands for 'ObjectReferenceInfo'
+            extensions.registerInstruction ("showscenegraph", "/l", opcodeShowSceneGraph, opcodeShowSceneGraphExplicit);
+            extensions.registerInstruction ("ssg", "/l", opcodeShowSceneGraph, opcodeShowSceneGraphExplicit);
             extensions.registerInstruction ("addtolevcreature", "ccl", opcodeAddToLevCreature);
             extensions.registerInstruction ("removefromlevcreature", "ccl", opcodeRemoveFromLevCreature);
             extensions.registerInstruction ("addtolevitem", "ccl", opcodeAddToLevItem);

@@ -4,13 +4,11 @@
 #include <osgParticle/Particle>
 #include <osgParticle/Shooter>
 #include <osgParticle/Operator>
-#include <osgParticle/ModularEmitter>
+#include <osgParticle/Emitter>
+#include <osgParticle/Placer>
+#include <osgParticle/Counter>
 
 #include <osg/NodeCallback>
-#include <osg/UserDataContainer>
-
-#include <components/nif/nifkey.hpp>
-#include <components/nif/data.hpp>
 
 #include "controller.hpp" // ValueInterpolator
 
@@ -18,6 +16,8 @@ namespace Nif
 {
     class NiGravity;
     class NiPlanarCollider;
+    class NiSphericalCollider;
+    class NiColorData;
 }
 
 namespace NifOsg
@@ -111,6 +111,23 @@ namespace NifOsg
         osg::Plane mPlaneInParticleSpace;
     };
 
+    class SphericalCollider : public osgParticle::Operator
+    {
+    public:
+        SphericalCollider(const Nif::NiSphericalCollider* collider);
+        SphericalCollider();
+        SphericalCollider(const SphericalCollider& copy, const osg::CopyOp& copyop);
+
+        META_Object(NifOsg, SphericalCollider)
+
+        virtual void beginOperate(osgParticle::Program* program);
+        virtual void operate(osgParticle::Particle* particle, double dt);
+    private:
+        float mBounceFactor;
+        osg::BoundingSphere mSphere;
+        osg::BoundingSphere mSphereInParticleSpace;
+    };
+
     class GrowFadeAffector : public osgParticle::Operator
     {
     public:
@@ -179,7 +196,14 @@ namespace NifOsg
     public:
         FindGroupByRecIndex(int recIndex);
 
-        virtual void apply(osg::Node &searchNode);
+        virtual void apply(osg::Node &node);
+
+        // Technically not required as the default implementation would trickle down to apply(Node&) anyway,
+        // but we'll shortcut instead to avoid the chain of virtual function calls
+        virtual void apply(osg::MatrixTransform& node);
+        virtual void apply(osg::Geometry& node);
+
+        void applyNode(osg::Node& searchNode);
 
         osg::Group* mFound;
         osg::NodePath mFoundPath;

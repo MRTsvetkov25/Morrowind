@@ -3,10 +3,10 @@
 
 #include <boost/shared_ptr.hpp>
 
+#include <components/esm/loadspel.hpp>
+
 #include "../mwworld/ptr.hpp"
 #include "../mwworld/containerstore.hpp"
-
-#include <components/esm/loadspel.hpp>
 
 namespace MWMechanics
 {
@@ -16,8 +16,22 @@ namespace MWMechanics
     public:
         virtual ~Action() {}
         virtual void prepare(const MWWorld::Ptr& actor) = 0;
-        virtual void getCombatRange (float& rangeAttack, float& rangeFollow) = 0;
+        virtual float getCombatRange (bool& isRanged) const = 0;
         virtual float getActionCooldown() { return 0.f; }
+        virtual const ESM::Weapon* getWeapon() const { return NULL; };
+        virtual bool isAttackingOrSpell() const { return true; }
+        virtual bool isFleeing() const { return false; }
+    };
+
+    class ActionFlee : public Action
+    {
+    public:
+        ActionFlee() {}
+        virtual void prepare(const MWWorld::Ptr& actor) {}
+        virtual float getCombatRange (bool& isRanged) const { return 0.0f; }
+        virtual float getActionCooldown() { return 3.0f; }
+        virtual bool isAttackingOrSpell() const { return false; }
+        virtual bool isFleeing() const { return true; }
     };
 
     class ActionSpell : public Action
@@ -28,7 +42,7 @@ namespace MWMechanics
         /// Sets the given spell as selected on the actor's spell list.
         virtual void prepare(const MWWorld::Ptr& actor);
 
-        virtual void getCombatRange (float& rangeAttack, float& rangeFollow);
+        virtual float getCombatRange (bool& isRanged) const;
     };
 
     class ActionEnchantedItem : public Action
@@ -38,7 +52,7 @@ namespace MWMechanics
         MWWorld::ContainerStoreIterator mItem;
         /// Sets the given item as selected enchanted item in the actor's InventoryStore.
         virtual void prepare(const MWWorld::Ptr& actor);
-        virtual void getCombatRange (float& rangeAttack, float& rangeFollow);
+        virtual float getCombatRange (bool& isRanged) const;
 
         /// Since this action has no animation, apply a small cool down for using it
         virtual float getActionCooldown() { return 1.f; }
@@ -51,7 +65,8 @@ namespace MWMechanics
         MWWorld::Ptr mPotion;
         /// Drinks the given potion.
         virtual void prepare(const MWWorld::Ptr& actor);
-        virtual void getCombatRange (float& rangeAttack, float& rangeFollow);
+        virtual float getCombatRange (bool& isRanged) const;
+        virtual bool isAttackingOrSpell() const { return false; }
 
         /// Since this action has no animation, apply a small cool down for using it
         virtual float getActionCooldown() { return 1.f; }
@@ -69,7 +84,8 @@ namespace MWMechanics
             : mAmmunition(ammo), mWeapon(weapon) {}
         /// Equips the given weapon.
         virtual void prepare(const MWWorld::Ptr& actor);
-        virtual void getCombatRange (float& rangeAttack, float& rangeFollow);
+        virtual float getCombatRange (bool& isRanged) const;
+        virtual const ESM::Weapon* getWeapon() const;
     };
 
     float rateSpell (const ESM::Spell* spell, const MWWorld::Ptr& actor, const MWWorld::Ptr& enemy);
@@ -85,6 +101,15 @@ namespace MWMechanics
     float rateEffects (const ESM::EffectList& list, const MWWorld::Ptr& actor, const MWWorld::Ptr& enemy);
 
     boost::shared_ptr<Action> prepareNextAction (const MWWorld::Ptr& actor, const MWWorld::Ptr& enemy);
+
+    float getDistanceMinusHalfExtents(const MWWorld::Ptr& actor, const MWWorld::Ptr& enemy, bool minusZDist=false);
+    float getMaxAttackDistance(const MWWorld::Ptr& actor);
+    bool canFight(const MWWorld::Ptr& actor, const MWWorld::Ptr& enemy);
+
+    float vanillaRateSpell(const ESM::Spell* spell, const MWWorld::Ptr& actor, const MWWorld::Ptr& enemy);
+    float vanillaRateWeaponAndAmmo(const MWWorld::Ptr& weapon, const MWWorld::Ptr& ammo, const MWWorld::Ptr& actor, const MWWorld::Ptr& enemy);
+    float vanillaRateFlee(const MWWorld::Ptr& actor, const MWWorld::Ptr& enemy);
+    bool makeFleeDecision(const MWWorld::Ptr& actor, const MWWorld::Ptr& enemy, float antiFleeRating);
 }
 
 #endif

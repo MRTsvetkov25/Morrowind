@@ -10,6 +10,8 @@
 #include <components/esm/loadglob.hpp>
 #include <components/esm/cellref.hpp>
 
+#include <components/resource/scenemanager.hpp>
+
 #include "idtable.hpp"
 #include "idtree.hpp"
 #include "columnimp.hpp"
@@ -59,11 +61,13 @@ int CSMWorld::Data::count (RecordBase::State state, const CollectionBase& collec
     return number;
 }
 
-CSMWorld::Data::Data (ToUTF8::FromType encoding, const ResourcesManager& resourcesManager, const Fallback::Map* fallback)
+CSMWorld::Data::Data (ToUTF8::FromType encoding, const ResourcesManager& resourcesManager, const Fallback::Map* fallback, const boost::filesystem::path& resDir)
 : mEncoder (encoding), mPathgrids (mCells), mRefs (mCells),
   mResourcesManager (resourcesManager), mFallbackMap(fallback),
-  mReader (0), mDialogue (0), mReaderIndex(0), mResourceSystem(new Resource::ResourceSystem(resourcesManager.getVFS()))
+  mReader (0), mDialogue (0), mReaderIndex(1), mResourceSystem(new Resource::ResourceSystem(resourcesManager.getVFS()))
 {
+    mResourceSystem->getSceneManager()->setShaderPath((resDir / "shaders").string());
+
     int index = 0;
 
     mGlobals.addColumn (new StringIdColumn<ESM::Global>);
@@ -177,6 +181,14 @@ CSMWorld::Data::Data (ToUTF8::FromType encoding, const ResourcesManager& resourc
     mRegions.addColumn (new NameColumn<ESM::Region>);
     mRegions.addColumn (new MapColourColumn<ESM::Region>);
     mRegions.addColumn (new SleepListColumn<ESM::Region>);
+    // Region Weather
+    mRegions.addColumn (new NestedParentColumn<ESM::Region> (Columns::ColumnId_RegionWeather));
+    index = mRegions.getColumns()-1;
+    mRegions.addAdapter (std::make_pair(&mRegions.getColumn(index), new RegionWeatherAdapter ()));
+    mRegions.getNestableColumn(index)->addColumn(
+        new NestedChildColumn (Columns::ColumnId_WeatherName, ColumnBase::Display_String, false));
+    mRegions.getNestableColumn(index)->addColumn(
+        new NestedChildColumn (Columns::ColumnId_WeatherChance, ColumnBase::Display_UnsignedInteger8));
     // Region Sounds
     mRegions.addColumn (new NestedParentColumn<ESM::Region> (Columns::ColumnId_RegionSounds));
     index = mRegions.getColumns()-1;
@@ -271,7 +283,7 @@ CSMWorld::Data::Data (ToUTF8::FromType encoding, const ResourcesManager& resourc
         new NestedChildColumn (Columns::ColumnId_InfoCondFunc, ColumnBase::Display_InfoCondFunc));
     // FIXME: don't have dynamic value enum delegate, use Display_String for now
     mTopicInfos.getNestableColumn(index)->addColumn(
-        new NestedChildColumn (Columns::ColumnId_InfoCondVar, ColumnBase::Display_String));
+        new NestedChildColumn (Columns::ColumnId_InfoCondVar, ColumnBase::Display_InfoCondVar));
     mTopicInfos.getNestableColumn(index)->addColumn(
         new NestedChildColumn (Columns::ColumnId_InfoCondComp, ColumnBase::Display_InfoCondComp));
     mTopicInfos.getNestableColumn(index)->addColumn(
@@ -351,7 +363,7 @@ CSMWorld::Data::Data (ToUTF8::FromType encoding, const ResourcesManager& resourc
     mBodyParts.addColumn (new FixedRecordTypeColumn<ESM::BodyPart> (UniversalId::Type_BodyPart));
     mBodyParts.addColumn (new BodyPartTypeColumn<ESM::BodyPart>);
     mBodyParts.addColumn (new VampireColumn<ESM::BodyPart>);
-    mBodyParts.addColumn (new FlagColumn<ESM::BodyPart> (Columns::ColumnId_Female, ESM::BodyPart::BPF_Female));
+    mBodyParts.addColumn(new GenderNpcColumn<ESM::BodyPart>);
     mBodyParts.addColumn (new FlagColumn<ESM::BodyPart> (Columns::ColumnId_Playable,
         ESM::BodyPart::BPF_NotPlayable, ColumnBase::Flag_Table | ColumnBase::Flag_Dialogue, true));
 
@@ -887,8 +899,10 @@ int CSMWorld::Data::startLoading (const boost::filesystem::path& path, bool base
 
     mReader = new ESM::ESMReader;
     mReader->setEncoder (&mEncoder);
-    mReader->setIndex(mReaderIndex++);
+    mReader->setIndex((project || !base) ? 0 : mReaderIndex++);
     mReader->open (path.string());
+
+    mContentFileNames.insert(std::make_pair(path.filename().string(), mReader->getIndex()));
 
     mBase = base;
     mProject = project;
@@ -900,6 +914,20 @@ int CSMWorld::Data::startLoading (const boost::filesystem::path& path, bool base
         metaData.load (*mReader);
 
         mMetaData.setRecord (0, Record<MetaData> (RecordBase::State_ModifiedOnly, 0, &metaData));
+    }
+
+    // Fix uninitialized master data index
+    for (std::vector<ESM::Header::MasterData>::const_iterator masterData = mReader->getGameFiles().begin();
+        masterData != mReader->getGameFiles().end(); ++masterData)
+    {
+        std::map<std::string, int>::iterator nameResult = mContentFileNames.find(masterData->name);
+        if (nameResult != mContentFileNames.end())
+        {
+            ESM::Header::MasterData& hackedMasterData = const_cast<ESM::Header::MasterData&>(*masterData);
+
+
+            hackedMasterData.index = nameResult->second;
+        }
     }
 
     return mReader->getRecordCount();
@@ -934,7 +962,7 @@ bool CSMWorld::Data::continueLoading (CSMDoc::Messages& messages)
 
     bool unhandledRecord = false;
 
-    switch (n.val)
+    switch (n.intval)
     {
         case ESM::REC_GLOB: mGlobals.load (*mReader, mBase); break;
         case ESM::REC_GMST: mGmsts.load (*mReader, mBase); break;
@@ -965,7 +993,7 @@ bool CSMWorld::Data::continueLoading (CSMDoc::Messages& messages)
             if (index!=-1/* && !mBase*/)
                 mLand.getRecord (index).get().loadData (
                     ESM::Land::DATA_VHGT | ESM::Land::DATA_VNML | ESM::Land::DATA_VCLR |
-                    ESM::Land::DATA_VTEX | ESM::Land::DATA_WNAM);
+                    ESM::Land::DATA_VTEX);
 
             break;
         }
@@ -1046,7 +1074,7 @@ bool CSMWorld::Data::continueLoading (CSMDoc::Messages& messages)
                 else
                 {
                     mTopics.load (record, mBase);
-                    mDialogue = &mTopics.getRecord (record.mId).get();   
+                    mDialogue = &mTopics.getRecord (record.mId).get();
                 }
             }
 

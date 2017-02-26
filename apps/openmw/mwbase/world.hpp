@@ -95,8 +95,6 @@ namespace MWBase
 
             virtual ~World() {}
 
-            virtual void preloadCommonAssets() = 0;
-
             virtual void startNewGame (bool bypass) = 0;
             ///< \param bypass Bypass regular game start.
 
@@ -217,7 +215,7 @@ namespace MWBase
             virtual bool toggleSky() = 0;
             ///< \return Resulting mode
 
-            virtual void changeWeather(const std::string& region, unsigned int id) = 0;
+            virtual void changeWeather(const std::string& region, const unsigned int id) = 0;
 
             virtual int getCurrentWeather() const = 0;
 
@@ -231,15 +229,16 @@ namespace MWBase
 
             virtual float getTimeScaleFactor() const = 0;
 
-            virtual void changeToInteriorCell (const std::string& cellName,
-                const ESM::Position& position) = 0;
+            virtual void changeToInteriorCell (const std::string& cellName, const ESM::Position& position, bool adjustPlayerPos, bool changeEvent=true) = 0;
             ///< Move to interior cell.
+            ///< @param changeEvent If false, do not trigger cell change flag or detect worldspace changes
 
-            virtual void changeToExteriorCell (const ESM::Position& position) = 0;
+            virtual void changeToExteriorCell (const ESM::Position& position, bool adjustPlayerPos, bool changeEvent=true) = 0;
             ///< Move to exterior cell.
+            ///< @param changeEvent If false, do not trigger cell change flag or detect worldspace changes
 
-            virtual void changeToCell (const ESM::CellId& cellId, const ESM::Position& position, bool detectWorldSpaceChange=true) = 0;
-            ///< @param detectWorldSpaceChange if true, clean up worldspace-specific data when the world space changes
+            virtual void changeToCell (const ESM::CellId& cellId, const ESM::Position& position, bool adjustPlayerPos, bool changeEvent=true) = 0;
+            ///< @param changeEvent If false, do not trigger cell change flag or detect worldspace changes
 
             virtual const ESM::Cell *getExterior (const std::string& cellName) const = 0;
             ///< Return a cell matching the given name or a 0-pointer, if there is no such cell.
@@ -249,12 +248,14 @@ namespace MWBase
             virtual MWWorld::Ptr  getFacedObject() = 0;
             ///< Return pointer to the object the player is looking at, if it is within activation range
 
+            virtual float getDistanceToFacedObject() = 0;
+
             virtual float getMaxActivationDistance() = 0;
 
             /// Returns a pointer to the object the provided object would hit (if within the
             /// specified distance), and the point where the hit occurs. This will attempt to
             /// use the "Head" node, or alternatively the "Bip01 Head" node as a basis.
-            virtual std::pair<MWWorld::Ptr,osg::Vec3f> getHitContact(const MWWorld::ConstPtr &ptr, float distance) = 0;
+            virtual std::pair<MWWorld::Ptr,osg::Vec3f> getHitContact(const MWWorld::ConstPtr &ptr, float distance, std::vector<MWWorld::Ptr> &targets) = 0;
 
             virtual void adjustPosition (const MWWorld::Ptr& ptr, bool force) = 0;
             ///< Adjust position after load to be on ground. Must be called after model load.
@@ -270,15 +271,19 @@ namespace MWBase
             virtual MWWorld::Ptr moveObject (const MWWorld::Ptr& ptr, float x, float y, float z) = 0;
             ///< @return an updated Ptr in case the Ptr's cell changes
 
-            virtual MWWorld::Ptr moveObject(const MWWorld::Ptr &ptr, MWWorld::CellStore* newCell, float x, float y, float z) = 0;
+            virtual MWWorld::Ptr moveObject(const MWWorld::Ptr &ptr, MWWorld::CellStore* newCell, float x, float y, float z, bool movePhysics=true) = 0;
             ///< @return an updated Ptr
 
             virtual void scaleObject (const MWWorld::Ptr& ptr, float scale) = 0;
 
             virtual void rotateObject(const MWWorld::Ptr& ptr,float x,float y,float z, bool adjust = false) = 0;
 
-            virtual MWWorld::Ptr safePlaceObject(const MWWorld::ConstPtr& ptr, MWWorld::CellStore* cell, ESM::Position pos) = 0;
-            ///< place an object in a "safe" location (ie not in the void, etc).
+            virtual MWWorld::Ptr placeObject(const MWWorld::ConstPtr& ptr, MWWorld::CellStore* cell, ESM::Position pos) = 0;
+            ///< Place an object. Makes a copy of the Ptr.
+
+            virtual MWWorld::Ptr safePlaceObject (const MWWorld::ConstPtr& ptr, const MWWorld::ConstPtr& referenceObject, MWWorld::CellStore* referenceCell, int direction, float distance) = 0;
+            ///< Place an object in a safe place next to \a referenceObject. \a direction and \a distance specify the wanted placement
+            /// relative to \a referenceObject (but the object may be placed somewhere else if the wanted location is obstructed).
 
             virtual void indexToPosition (int cellX, int cellY, float &x, float &y, bool centre = false)
                 const = 0;
@@ -378,6 +383,7 @@ namespace MWBase
             ///Is the head of the creature underwater?
             virtual bool isSubmerged(const MWWorld::ConstPtr &object) const = 0;
             virtual bool isUnderwater(const MWWorld::CellStore* cell, const osg::Vec3f &pos) const = 0;
+            virtual bool isWaterWalkingCastableOnTarget(const MWWorld::ConstPtr &target) const = 0;
             virtual bool isOnGround(const MWWorld::Ptr &ptr) const = 0;
 
             virtual osg::Matrixf getActorHeadTransform(const MWWorld::ConstPtr& actor) const = 0;
@@ -402,6 +408,9 @@ namespace MWBase
             /// @note throws an exception when invoked on a teleport door
             virtual void activateDoor(const MWWorld::Ptr& door, int state) = 0;
 
+            // Added by tes3mp to allow saving a door state received from a packet
+            virtual void saveDoorState(const MWWorld::Ptr& door, int state) = 0;
+
             virtual bool getPlayerStandingOn (const MWWorld::ConstPtr& object) = 0; ///< @return true if the player is standing on \a object
             virtual bool getActorStandingOn (const MWWorld::ConstPtr& object) = 0; ///< @return true if any actor is standing on \a object
             virtual bool getPlayerCollidingWith(const MWWorld::ConstPtr& object) = 0; ///< @return true if the player is colliding with \a object
@@ -423,7 +432,7 @@ namespace MWBase
             virtual bool getLOS(const MWWorld::ConstPtr& actor,const MWWorld::ConstPtr& targetActor) = 0;
             ///< get Line of Sight (morrowind stupid implementation)
 
-            virtual float getDistToNearestRayHit(const osg::Vec3f& from, const osg::Vec3f& dir, float maxDist) = 0;
+            virtual float getDistToNearestRayHit(const osg::Vec3f& from, const osg::Vec3f& dir, float maxDist, bool includeWater = false) = 0;
 
             virtual void enableActorCollision(const MWWorld::Ptr& actor, bool enable) = 0;
 
@@ -478,9 +487,8 @@ namespace MWBase
 
             virtual void castSpell (const MWWorld::Ptr& actor) = 0;
 
-            virtual void launchMagicBolt (const std::string& model, const std::string& sound, const std::string& spellId,
-                                          float speed, bool stack, const ESM::EffectList& effects,
-                                           const MWWorld::Ptr& caster, const std::string& sourceName, const osg::Vec3f& fallbackDirection) = 0;
+            virtual void launchMagicBolt (const std::string& spellId, bool stack, const ESM::EffectList& effects,
+                                          const MWWorld::Ptr& caster, const std::string& sourceName, const osg::Vec3f& fallbackDirection) = 0;
             virtual void launchProjectile (MWWorld::Ptr actor, MWWorld::ConstPtr projectile,
                                            const osg::Vec3f& worldPos, const osg::Quat& orient, MWWorld::Ptr bow, float speed, float attackStrength) = 0;
 
@@ -527,8 +535,9 @@ namespace MWBase
 
             virtual void spawnEffect (const std::string& model, const std::string& textureOverride, const osg::Vec3f& worldPos) = 0;
 
-            virtual void explodeSpell (const osg::Vec3f& origin, const ESM::EffectList& effects, const MWWorld::Ptr& caster,
-                                       const MWWorld::Ptr& ignore, ESM::RangeType rangeType, const std::string& id, const std::string& sourceName) = 0;
+            virtual void explodeSpell(const osg::Vec3f& origin, const ESM::EffectList& effects, const MWWorld::Ptr& caster,
+                                      const MWWorld::Ptr& ignore, ESM::RangeType rangeType, const std::string& id,
+                                      const std::string& sourceName, const bool fromProjectile=false) = 0;
 
             virtual void activate (const MWWorld::Ptr& object, const MWWorld::Ptr& actor) = 0;
 
@@ -541,7 +550,7 @@ namespace MWBase
             /// Resets all actors in the current active cells to their original location within that cell.
             virtual void resetActors() = 0;
 
-            virtual bool isWalkingOnWater (const MWWorld::ConstPtr& actor) = 0;
+            virtual bool isWalkingOnWater (const MWWorld::ConstPtr& actor) const = 0;
 
             /// Return a vector aiming the actor's weapon towards a target.
             /// @note The length of the vector is the distance between actor and target.
@@ -553,6 +562,19 @@ namespace MWBase
             virtual void removeContainerScripts(const MWWorld::Ptr& reference) = 0;
 
             virtual bool isPlayerInJail() const = 0;
+
+            /// Return terrain height at \a worldPos position.
+            virtual float getTerrainHeightAt(const osg::Vec3f& worldPos) const = 0;
+
+            /// Return physical or rendering half extents of the given actor.
+            virtual osg::Vec3f getHalfExtents(const MWWorld::ConstPtr& actor, bool rendering=false) const = 0;
+
+            /// Export scene graph to a file and return the filename.
+            /// \param ptr object to export scene graph for (if empty, export entire scene graph)
+            virtual std::string exportSceneGraph(const MWWorld::Ptr& ptr) = 0;
+
+            /// Preload VFX associated with this effect list
+            virtual void preloadEffects(const ESM::EffectList* effectList) = 0;
     };
 }
 

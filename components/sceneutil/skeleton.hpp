@@ -45,7 +45,7 @@ namespace SceneUtil
         Bone* getBone(const std::string& name);
 
         /// Request an update of bone matrices. May be a no-op if already updated in this frame.
-        void updateBoneMatrices(osg::NodeVisitor* nv);
+        void updateBoneMatrices(unsigned int traversalNumber);
 
         /// Set the skinning active flag. Inactive skeletons will not have their child rigs updated.
         /// You should set this flag to false if you know that bones are not currently moving.
@@ -54,6 +54,11 @@ namespace SceneUtil
         bool getActive() const;
 
         void traverse(osg::NodeVisitor& nv);
+
+        void markDirty();
+
+        virtual void childInserted(unsigned int);
+        virtual void childRemoved(unsigned int, unsigned int);
 
     private:
         // The root bone is not a "real" bone, it has no corresponding node in the scene graph.
@@ -69,6 +74,8 @@ namespace SceneUtil
         bool mActive;
 
         unsigned int mLastFrameNumber;
+        bool mTraversedEvenFrame;
+        bool mTraversedOddFrame;
     };
 
 }

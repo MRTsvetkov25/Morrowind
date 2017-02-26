@@ -1,5 +1,7 @@
 #include "sortfilteritemmodel.hpp"
 
+#include <iostream>
+
 #include <components/misc/stringops.hpp>
 
 #include <components/esm/loadalch.hpp>
@@ -14,9 +16,14 @@
 #include <components/esm/loadprob.hpp>
 #include <components/esm/loadrepa.hpp>
 #include <components/esm/loadweap.hpp>
+#include <components/esm/loadench.hpp>
+
+#include "../mwbase/environment.hpp"
+#include "../mwbase/world.hpp"
 
 #include "../mwworld/class.hpp"
 #include "../mwworld/nullaction.hpp"
+#include "../mwworld/esmstore.hpp"
 
 namespace
 {
@@ -132,9 +139,37 @@ namespace MWGui
                 && !base.get<ESM::Book>()->mBase->mData.mIsScroll)
             return false;
 
-        if ((mFilter & Filter_OnlyUsableItems) && typeid(*base.getClass().use(base)) == typeid(MWWorld::NullAction)
-                && base.getClass().getScript(base).empty())
+        if ((mFilter & Filter_OnlyUsableItems) && base.getClass().getScript(base).empty())
+        {
+            boost::shared_ptr<MWWorld::Action> actionOnUse = base.getClass().use(base);
+            if (!actionOnUse || actionOnUse->isNullAction())
+                return false;
+        }
+
+        if ((mFilter & Filter_OnlyRepairable) && (
+                    !base.getClass().hasItemHealth(base)
+                    || (base.getClass().getItemHealth(base) == base.getClass().getItemMaxHealth(base))
+                    || (base.getTypeName() != typeid(ESM::Weapon).name()
+                        && base.getTypeName() != typeid(ESM::Armor).name())))
             return false;
+
+        if (mFilter & Filter_OnlyRechargable)
+        {
+            if (!(item.mFlags & ItemStack::Flag_Enchanted))
+                return false;
+
+            std::string enchId = base.getClass().getEnchantment(base);
+            const ESM::Enchantment* ench = MWBase::Environment::get().getWorld()->getStore().get<ESM::Enchantment>().search(enchId);
+            if (!ench)
+            {
+                std::cerr << "Can't find enchantment '" << enchId << "' on item " << base.getCellRef().getRefId() << std::endl;
+                return false;
+            }
+
+            if (base.getCellRef().getEnchantmentCharge() >= ench->mData.mCharge
+                    || base.getCellRef().getEnchantmentCharge() == -1)
+                return false;
+        }
 
         return true;
     }

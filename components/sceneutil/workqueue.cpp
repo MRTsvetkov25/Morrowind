@@ -55,7 +55,7 @@ WorkQueue::~WorkQueue()
     {
         OpenThreads::ScopedLock<OpenThreads::Mutex> lock(mMutex);
         while (!mQueue.empty())
-            mQueue.pop();
+            mQueue.pop_back();
         mIsReleased = true;
         mCondition.broadcast();
     }
@@ -67,7 +67,7 @@ WorkQueue::~WorkQueue()
     }
 }
 
-void WorkQueue::addWorkItem(osg::ref_ptr<WorkItem> item)
+void WorkQueue::addWorkItem(osg::ref_ptr<WorkItem> item, bool front)
 {
     if (item->isDone())
     {
@@ -76,7 +76,10 @@ void WorkQueue::addWorkItem(osg::ref_ptr<WorkItem> item)
     }
 
     OpenThreads::ScopedLock<OpenThreads::Mutex> lock(mMutex);
-    mQueue.push(item);
+    if (front)
+        mQueue.push_front(item);
+    else
+        mQueue.push_back(item);
     mCondition.signal();
 }
 
@@ -87,14 +90,31 @@ osg::ref_ptr<WorkItem> WorkQueue::removeWorkItem()
     {
         mCondition.wait(&mMutex);
     }
-    if (mQueue.size())
+    if (!mQueue.empty())
     {
         osg::ref_ptr<WorkItem> item = mQueue.front();
-        mQueue.pop();
+        mQueue.pop_front();
         return item;
     }
     else
         return NULL;
+}
+
+unsigned int WorkQueue::getNumItems() const
+{
+    OpenThreads::ScopedLock<OpenThreads::Mutex> lock(mMutex);
+    return mQueue.size();
+}
+
+unsigned int WorkQueue::getNumActiveThreads() const
+{
+    unsigned int count = 0;
+    for (unsigned int i=0; i<mThreads.size(); ++i)
+    {
+        if (mThreads[i]->isActive())
+            ++count;
+    }
+    return count;
 }
 
 WorkThread::WorkThread(WorkQueue *workQueue)
@@ -109,9 +129,16 @@ void WorkThread::run()
         osg::ref_ptr<WorkItem> item = mWorkQueue->removeWorkItem();
         if (!item)
             return;
+        mActive = true;
         item->doWork();
         item->signalDone();
+        mActive = false;
     }
+}
+
+bool WorkThread::isActive() const
+{
+    return mActive;
 }
 
 }

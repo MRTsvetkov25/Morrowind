@@ -123,6 +123,8 @@ namespace CSMWorld
 
             std::vector<boost::shared_ptr<ESM::ESMReader> > mReaders;
 
+            std::map<std::string, int> mContentFileNames;
+
             // not implemented
             Data (const Data&);
             Data& operator= (const Data&);
@@ -138,7 +140,7 @@ namespace CSMWorld
 
         public:
 
-            Data (ToUTF8::FromType encoding, const ResourcesManager& resourcesManager, const Fallback::Map* fallback);
+            Data (ToUTF8::FromType encoding, const ResourcesManager& resourcesManager, const Fallback::Map* fallback, const boost::filesystem::path& resDir);
 
             virtual ~Data();
 

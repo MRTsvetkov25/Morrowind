@@ -46,6 +46,9 @@ struct Land
         DATA_VTEX = 16
     };
 
+    // default height to use in case there is no Land record
+    static const int DEFAULT_HEIGHT = -2048;
+
     // number of vertices per side
     static const int LAND_SIZE = 65;
 
@@ -93,19 +96,13 @@ struct Land
         // 24-bit RGB color for each vertex
         unsigned char mColours[3 * LAND_NUM_VERTS];
 
-        // DataTypes available in this LandData, accessing data that is not available is an undefined operation
-        int mDataTypes;
-
-        // low-LOD heightmap (used for rendering the global map)
-        signed char mWnam[81];
-
         // ???
         short mUnk1;
         uint8_t mUnk2;
-
-        void save(ESMWriter &esm) const;
-        static void transposeTextureData(const uint16_t *in, uint16_t *out);
     };
+
+    // low-LOD heightmap (used for rendering the global map)
+    signed char mWnam[81];
 
     void load(ESMReader &esm, bool &isDeleted);
     void save(ESMWriter &esm, bool isDeleted = false) const;
@@ -120,7 +117,7 @@ struct Land
     /**
      * Frees memory allocated for land data
      */
-    void unloadData();
+    void unloadData() const;
 
     /// Check if given data type is loaded
     /// @note We only check data types that *can* be loaded (present in mDataTypes)

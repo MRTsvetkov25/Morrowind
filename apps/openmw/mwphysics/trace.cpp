@@ -4,7 +4,6 @@
 
 #include <BulletCollision/CollisionDispatch/btCollisionWorld.h>
 #include <BulletCollision/CollisionShapes/btConvexShape.h>
-#include <BulletCollision/CollisionShapes/btCylinderShape.h>
 
 #include "collisiontype.hpp"
 #include "actor.hpp"
@@ -16,7 +15,7 @@ namespace MWPhysics
 class ClosestNotMeConvexResultCallback : public btCollisionWorld::ClosestConvexResultCallback
 {
 public:
-    ClosestNotMeConvexResultCallback(btCollisionObject *me, const btVector3 &up, btScalar minSlopeDot)
+    ClosestNotMeConvexResultCallback(const btCollisionObject *me, const btVector3 &up, btScalar minSlopeDot)
       : btCollisionWorld::ClosestConvexResultCallback(btVector3(0.0, 0.0, 0.0), btVector3(0.0, 0.0, 0.0)),
         mMe(me), mUp(up), mMinSlopeDot(minSlopeDot)
     {
@@ -44,13 +43,13 @@ public:
     }
 
 protected:
-    btCollisionObject *mMe;
+    const btCollisionObject *mMe;
     const btVector3 mUp;
     const btScalar mMinSlopeDot;
 };
 
 
-void ActorTracer::doTrace(btCollisionObject *actor, const osg::Vec3f& start, const osg::Vec3f& end, btCollisionWorld* world)
+void ActorTracer::doTrace(const btCollisionObject *actor, const osg::Vec3f& start, const osg::Vec3f& end, const btCollisionWorld* world)
 {
     const btVector3 btstart = toBullet(start);
     const btVector3 btend = toBullet(end);
@@ -66,9 +65,9 @@ void ActorTracer::doTrace(btCollisionObject *actor, const osg::Vec3f& start, con
     newTraceCallback.m_collisionFilterGroup = actor->getBroadphaseHandle()->m_collisionFilterGroup;
     newTraceCallback.m_collisionFilterMask = actor->getBroadphaseHandle()->m_collisionFilterMask;
 
-    btCollisionShape *shape = actor->getCollisionShape();
+    const btCollisionShape *shape = actor->getCollisionShape();
     assert(shape->isConvex());
-    world->convexSweepTest(static_cast<btConvexShape*>(shape),
+    world->convexSweepTest(static_cast<const btConvexShape*>(shape),
                                                from, to, newTraceCallback);
 
     // Copy the hit data over to our trace results struct:
@@ -78,6 +77,7 @@ void ActorTracer::doTrace(btCollisionObject *actor, const osg::Vec3f& start, con
         mFraction = newTraceCallback.m_closestHitFraction;
         mPlaneNormal = osg::Vec3f(tracehitnormal.x(), tracehitnormal.y(), tracehitnormal.z());
         mEndPos = (end-start)*mFraction + start;
+        mHitPoint = toOsg(newTraceCallback.m_hitPointWorld);
         mHitObject = newTraceCallback.m_hitCollisionObject;
     }
     else
@@ -85,14 +85,15 @@ void ActorTracer::doTrace(btCollisionObject *actor, const osg::Vec3f& start, con
         mEndPos = end;
         mPlaneNormal = osg::Vec3f(0.0f, 0.0f, 1.0f);
         mFraction = 1.0f;
+        mHitPoint = end;
         mHitObject = NULL;
     }
 }
 
-void ActorTracer::findGround(const Actor* actor, const osg::Vec3f& start, const osg::Vec3f& end, btCollisionWorld* world)
+void ActorTracer::findGround(const Actor* actor, const osg::Vec3f& start, const osg::Vec3f& end, const btCollisionWorld* world)
 {
-    const btVector3 btstart(start.x(), start.y(), start.z()+1.0f);
-    const btVector3 btend(end.x(), end.y(), end.z()+1.0f);
+    const btVector3 btstart(start.x(), start.y(), start.z());
+    const btVector3 btend(end.x(), end.y(), end.z());
 
     const btTransform &trans = actor->getCollisionObject()->getWorldTransform();
     btTransform from(trans.getBasis(), btstart);
@@ -104,19 +105,13 @@ void ActorTracer::findGround(const Actor* actor, const osg::Vec3f& start, const 
     newTraceCallback.m_collisionFilterMask = actor->getCollisionObject()->getBroadphaseHandle()->m_collisionFilterMask;
     newTraceCallback.m_collisionFilterMask &= ~CollisionType_Actor;
 
-    btVector3 halfExtents = toBullet(actor->getHalfExtents());
-
-    halfExtents[2] = 1.0f;
-    btCylinderShapeZ base(halfExtents);
-
-    world->convexSweepTest(&base, from, to, newTraceCallback);
+    world->convexSweepTest(actor->getConvexShape(), from, to, newTraceCallback);
     if(newTraceCallback.hasHit())
     {
         const btVector3& tracehitnormal = newTraceCallback.m_hitNormalWorld;
         mFraction = newTraceCallback.m_closestHitFraction;
         mPlaneNormal = osg::Vec3f(tracehitnormal.x(), tracehitnormal.y(), tracehitnormal.z());
         mEndPos = (end-start)*mFraction + start;
-        mEndPos[2] += 1.0f;
     }
     else
     {

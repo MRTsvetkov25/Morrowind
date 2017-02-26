@@ -3,6 +3,7 @@
 
 #include <string>
 #include <map>
+#include <memory>
 
 #include <osg/ref_ptr>
 #include <osg/Node>
@@ -14,6 +15,7 @@ namespace Resource
 {
     class ImageManager;
     class NifFileManager;
+    class SharedStateManager;
 }
 
 namespace osgUtil
@@ -21,9 +23,14 @@ namespace osgUtil
     class IncrementalCompileOperation;
 }
 
-namespace osgViewer
+namespace osgDB
 {
-    class Viewer;
+    class SharedStateManager;
+}
+
+namespace Shader
+{
+    class ShaderManager;
 }
 
 namespace Resource
@@ -38,6 +45,41 @@ namespace Resource
     public:
         SceneManager(const VFS::Manager* vfs, Resource::ImageManager* imageManager, Resource::NifFileManager* nifFileManager);
         ~SceneManager();
+
+        Shader::ShaderManager& getShaderManager();
+
+        /// Re-create shaders for this node, need to call this if texture stages or vertex color mode have changed.
+        void recreateShaders(osg::ref_ptr<osg::Node> node);
+
+        /// @see ShaderVisitor::setForceShaders
+        void setForceShaders(bool force);
+        bool getForceShaders() const;
+
+        /// @see ShaderVisitor::setClampLighting
+        void setClampLighting(bool clamp);
+        bool getClampLighting() const;
+
+        /// @see ShaderVisitor::setForcePerPixelLighting
+        void setForcePerPixelLighting(bool force);
+        bool getForcePerPixelLighting() const;
+
+        /// @see ShaderVisitor::setAutoUseNormalMaps
+        void setAutoUseNormalMaps(bool use);
+
+        /// @see ShaderVisitor::setNormalMapPattern
+        void setNormalMapPattern(const std::string& pattern);
+
+        /// @see ShaderVisitor::setNormalHeightMapPattern
+        void setNormalHeightMapPattern(const std::string& pattern);
+
+        void setAutoUseSpecularMaps(bool use);
+
+        void setSpecularMapPattern(const std::string& pattern);
+
+        void setShaderPath(const std::string& path);
+
+        /// Check if a given scene is loaded and if so, update its usage timestamp to prevent it from being unloaded
+        bool checkLoaded(const std::string& name, double referenceTime);
 
         /// Get a read-only copy of this scene "template"
         /// @note If the given filename does not exist or fails to load, an error marker mesh will be used instead.
@@ -75,18 +117,14 @@ namespace Resource
         /// Set up an IncrementalCompileOperation for background compiling of loaded scenes.
         void setIncrementalCompileOperation(osgUtil::IncrementalCompileOperation* ico);
 
-        /// @note SceneManager::attachTo calls this method automatically, only needs to be called by users if manually attaching
-        void notifyAttached(osg::Node* node) const;
-
         Resource::ImageManager* getImageManager();
 
         /// @param mask The node mask to apply to loaded particle system nodes.
         void setParticleSystemMask(unsigned int mask);
 
-        /// @param viewer used to apply the new filter settings to the existing scene graph. If there is no scene yet, you can pass a NULL viewer.
+        /// @warning It is unsafe to call this method while the draw thread is using textures! call Viewer::stopThreading first.
         void setFilterSettings(const std::string &magfilter, const std::string &minfilter,
-                               const std::string &mipmap, int maxAnisotropy,
-                               osgViewer::Viewer *viewer);
+                               const std::string &mipmap, int maxAnisotropy);
 
         /// Apply filter settings to the given texture. Note, when loading an object through this scene manager (i.e. calling getTemplate or createInstance)
         /// the filter settings are applied automatically. This method is provided for textures that were created outside of the SceneManager.
@@ -99,12 +137,25 @@ namespace Resource
         /// @see ResourceManager::updateCache
         virtual void updateCache(double referenceTime);
 
+        virtual void reportStats(unsigned int frameNumber, osg::Stats* stats);
+
     private:
 
         osg::ref_ptr<osg::Node> createInstance(const std::string& name);
 
+        std::auto_ptr<Shader::ShaderManager> mShaderManager;
+        bool mForceShaders;
+        bool mClampLighting;
+        bool mForcePerPixelLighting;
+        bool mAutoUseNormalMaps;
+        std::string mNormalMapPattern;
+        std::string mNormalHeightMapPattern;
+        bool mAutoUseSpecularMaps;
+        std::string mSpecularMapPattern;
+
         osg::ref_ptr<MultiObjectCache> mInstanceCache;
 
+        osg::ref_ptr<Resource::SharedStateManager> mSharedStateManager;
         OpenThreads::Mutex mSharedStateMutex;
 
         Resource::ImageManager* mImageManager;

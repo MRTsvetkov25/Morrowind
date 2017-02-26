@@ -1,5 +1,11 @@
 #include "security.hpp"
 
+#include "../mwmp/Main.hpp"
+#include "../mwmp/Networking.hpp"
+#include "../mwmp/WorldEvent.hpp"
+
+#include "../mwworld/cellstore.hpp"
+
 #include <components/misc/rng.hpp>
 
 #include "../mwworld/class.hpp"
@@ -52,6 +58,17 @@ namespace MWMechanics
             MWBase::Environment::get().getMechanicsManager()->objectOpened(mActor, lock);
             if (Misc::Rng::roll0to99() <= x)
             {
+                // Added by tes3mp
+                mwmp::WorldEvent *worldEvent = mwmp::Main::get().getNetworking()->resetWorldEvent();
+                worldEvent->cell = *lock.getCell()->getCell();
+
+                mwmp::WorldObject worldObject;
+                worldObject.refId = lock.getCellRef().getRefId();
+                worldObject.refNumIndex = lock.getCellRef().getRefNum().mIndex;
+                worldEvent->addObject(worldObject);
+                
+                mwmp::Main::get().getNetworking()->getWorldPacket(ID_OBJECT_UNLOCK)->Send(worldEvent);
+
                 lock.getClass().unlock(lock);
                 resultMessage = "#{sLockSuccess}";
                 resultSound = "Open Lock";

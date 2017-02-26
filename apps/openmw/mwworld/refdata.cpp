@@ -8,8 +8,19 @@
 #include "../mwbase/environment.hpp"
 #include "../mwbase/world.hpp"
 
+namespace
+{
+enum RefDataFlags
+{
+    Flag_SuppressActivate = 1, // If set, activation will be suppressed and redirected to the OnActivate flag, which can then be handled by a script.
+    Flag_OnActivate = 2,
+    Flag_ActivationBuffered = 4
+};
+}
+
 namespace MWWorld
 {
+
     void RefData::copy (const RefData& refData)
     {
         mBaseNode = refData.mBaseNode;
@@ -19,6 +30,9 @@ namespace MWWorld
         mPosition = refData.mPosition;
         mChanged = refData.mChanged;
         mDeletedByContentFile = refData.mDeletedByContentFile;
+        mFlags = refData.mFlags;
+
+        mAnimationState = refData.mAnimationState;
 
         mCustomData = refData.mCustomData ? refData.mCustomData->clone() : 0;
     }
@@ -32,7 +46,7 @@ namespace MWWorld
     }
 
     RefData::RefData()
-    : mBaseNode(0), mDeletedByContentFile(false), mEnabled (true), mCount (1), mCustomData (0), mChanged(false)
+    : mBaseNode(0), mDeletedByContentFile(false), mEnabled (true), mCount (1), mCustomData (0), mChanged(false), mFlags(0)
     {
         for (int i=0; i<3; ++i)
         {
@@ -45,7 +59,7 @@ namespace MWWorld
     : mBaseNode(0), mDeletedByContentFile(false), mEnabled (true),
       mCount (1), mPosition (cellRef.mPos),
       mCustomData (0),
-      mChanged(false) // Loading from ESM/ESP files -> assume unchanged
+      mChanged(false), mFlags(0) // Loading from ESM/ESP files -> assume unchanged
     {
     }
 
@@ -54,9 +68,14 @@ namespace MWWorld
       mEnabled (objectState.mEnabled != 0),
       mCount (objectState.mCount),
       mPosition (objectState.mPosition),
+      mAnimationState(objectState.mAnimationState),
       mCustomData (0),
-      mChanged(true) // Loading from a savegame -> assume changed
+      mChanged(true), mFlags(objectState.mFlags) // Loading from a savegame -> assume changed
     {
+        // "Note that the ActivationFlag_UseEnabled is saved to the reference,
+        // which will result in permanently suppressed activation if the reference script is removed.
+        // This occurred when removing the animated containers mod, and the fix in MCP is to reset UseEnabled to true on loading a game."
+        mFlags &= (~Flag_SuppressActivate);
     }
 
     RefData::RefData (const RefData& refData)
@@ -65,6 +84,7 @@ namespace MWWorld
         try
         {
             copy (refData);
+            mFlags &= ~(Flag_SuppressActivate|Flag_OnActivate|Flag_ActivationBuffered);
         }
         catch (...)
         {
@@ -80,6 +100,9 @@ namespace MWWorld
         objectState.mEnabled = mEnabled;
         objectState.mCount = mCount;
         objectState.mPosition = mPosition;
+        objectState.mFlags = mFlags;
+
+        objectState.mAnimationState = mAnimationState;
     }
 
     RefData& RefData::operator= (const RefData& refData)
@@ -217,6 +240,45 @@ namespace MWWorld
 
     bool RefData::hasChanged() const
     {
-        return mChanged;
+        return mChanged || !mAnimationState.empty();
     }
+
+    bool RefData::activateByScript()
+    {
+        bool ret = (mFlags & Flag_ActivationBuffered);
+        mFlags &= ~(Flag_SuppressActivate|Flag_OnActivate);
+        return ret;
+    }
+
+    bool RefData::activate()
+    {
+        if (mFlags & Flag_SuppressActivate)
+        {
+            mFlags |= Flag_OnActivate|Flag_ActivationBuffered;
+            return false;
+        }
+        else
+        {
+            return true;
+        }
+    }
+
+    bool RefData::onActivate()
+    {
+        bool ret = mFlags & Flag_OnActivate;
+        mFlags |= Flag_SuppressActivate;
+        mFlags &= (~Flag_OnActivate);
+        return ret;
+    }
+
+    const ESM::AnimationState& RefData::getAnimationState() const
+    {
+        return mAnimationState;
+    }
+
+    ESM::AnimationState& RefData::getAnimationState()
+    {
+        return mAnimationState;
+    }
+
 }

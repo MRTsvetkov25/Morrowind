@@ -2,11 +2,13 @@
 
 #include <iostream>
 
+#include <osg/Fog>
+#include <osg/BlendFunc>
 #include <osg/Texture2D>
 #include <osg/Camera>
 #include <osg/PositionAttitudeTransform>
-#include <osgViewer/Viewer>
 #include <osg/LightModel>
+#include <osg/LightSource>
 #include <osgUtil/IntersectionVisitor>
 #include <osgUtil/LineSegmentIntersector>
 
@@ -41,7 +43,16 @@ namespace MWRender
                 mRendered = true;
 
                 mLastRenderedFrame = nv->getTraversalNumber();
+
+                osg::ref_ptr<osg::FrameStamp> previousFramestamp = const_cast<osg::FrameStamp*>(nv->getFrameStamp());
+                osg::FrameStamp* fs = new osg::FrameStamp(*previousFramestamp);
+                fs->setSimulationTime(0.0);
+
+                nv->setFrameStamp(fs);
+
                 traverse(node, nv);
+
+                nv->setFrameStamp(previousFramestamp);
             }
             else
             {
@@ -64,9 +75,38 @@ namespace MWRender
         unsigned int mLastRenderedFrame;
     };
 
-    CharacterPreview::CharacterPreview(osgViewer::Viewer* viewer, Resource::ResourceSystem* resourceSystem,
+
+    // Set up alpha blending to Additive mode to avoid issues caused by transparent objects writing onto the alpha value of the FBO
+    class SetUpBlendVisitor : public osg::NodeVisitor
+    {
+    public:
+        SetUpBlendVisitor(): osg::NodeVisitor(TRAVERSE_ALL_CHILDREN)
+        {
+        }
+
+        virtual void apply(osg::Node& node)
+        {
+            if (osg::StateSet* stateset = node.getStateSet())
+            {
+                if (stateset->getAttribute(osg::StateAttribute::BLENDFUNC) || stateset->getBinNumber() == osg::StateSet::TRANSPARENT_BIN)
+                {
+                    osg::ref_ptr<osg::StateSet> newStateSet = new osg::StateSet(*stateset, osg::CopyOp::SHALLOW_COPY);
+                    osg::BlendFunc* blendFunc = static_cast<osg::BlendFunc*>(stateset->getAttribute(osg::StateAttribute::BLENDFUNC));
+                    osg::ref_ptr<osg::BlendFunc> newBlendFunc = blendFunc ? new osg::BlendFunc(*blendFunc) : new osg::BlendFunc;
+                    newBlendFunc->setDestinationAlpha(osg::BlendFunc::ONE);
+                    newBlendFunc->setDestinationRGB(osg::BlendFunc::ONE);
+                    newStateSet->setAttribute(newBlendFunc, osg::StateAttribute::ON);
+                    node.setStateSet(newStateSet);
+                }
+
+            }
+            traverse(node);
+        }
+    };
+
+    CharacterPreview::CharacterPreview(osg::Group* parent, Resource::ResourceSystem* resourceSystem,
                                        MWWorld::Ptr character, int sizeX, int sizeY, const osg::Vec3f& position, const osg::Vec3f& lookAt)
-        : mViewer(viewer)
+        : mParent(parent)
         , mResourceSystem(resourceSystem)
         , mPosition(position)
         , mLookAt(lookAt)
@@ -92,16 +132,22 @@ namespace MWRender
         mCamera->setViewport(0, 0, sizeX, sizeY);
         mCamera->setRenderOrder(osg::Camera::PRE_RENDER);
         mCamera->attach(osg::Camera::COLOR_BUFFER, mTexture);
-        mCamera->setGraphicsContext(mViewer->getCamera()->getGraphicsContext());
+        mCamera->setName("CharacterPreview");
 
         mCamera->setNodeMask(Mask_RenderToTexture);
 
         osg::ref_ptr<SceneUtil::LightManager> lightManager = new SceneUtil::LightManager;
         lightManager->setStartLight(1);
-        osg::ref_ptr<osg::StateSet> stateset = new osg::StateSet;
+        osg::ref_ptr<osg::StateSet> stateset = lightManager->getOrCreateStateSet();
         stateset->setMode(GL_LIGHTING, osg::StateAttribute::ON);
         stateset->setMode(GL_NORMALIZE, osg::StateAttribute::ON);
         stateset->setMode(GL_CULL_FACE, osg::StateAttribute::ON);
+        // assign large value to effectively turn off fog
+        // shaders don't respect glDisable(GL_FOG)
+        osg::ref_ptr<osg::Fog> fog (new osg::Fog);
+        fog->setStart(10000000);
+        fog->setEnd(10000000);
+        stateset->setAttributeAndModes(fog, osg::StateAttribute::OFF|osg::StateAttribute::OVERRIDE);
 
         osg::ref_ptr<osg::LightModel> lightmodel = new osg::LightModel;
         lightmodel->setAmbientIntensity(osg::Vec4(0.25, 0.25, 0.25, 1.0));
@@ -123,7 +169,6 @@ namespace MWRender
 
         lightSource->setStateSetModes(*stateset, osg::StateAttribute::ON);
 
-        lightManager->setStateSet(stateset);
         lightManager->addChild(lightSource);
 
         mCamera->addChild(lightManager);
@@ -134,14 +179,15 @@ namespace MWRender
         mDrawOnceCallback = new DrawOnceCallback;
         mCamera->addUpdateCallback(mDrawOnceCallback);
 
-        mViewer->getSceneData()->asGroup()->addChild(mCamera);
+        mParent->addChild(mCamera);
 
         mCharacter.mCell = NULL;
     }
 
     CharacterPreview::~CharacterPreview ()
     {
-        mViewer->getSceneData()->asGroup()->removeChild(mCamera);
+        mCamera->removeChildren(0, mCamera->getNumChildren());
+        mParent->removeChild(mCamera);
     }
 
     int CharacterPreview::getTextureWidth() const
@@ -154,8 +200,15 @@ namespace MWRender
         return mSizeY;
     }
 
+    void CharacterPreview::setBlendMode()
+    {
+        SetUpBlendVisitor visitor;
+        mNode->accept(visitor);
+    }
+
     void CharacterPreview::onSetup()
     {
+        setBlendMode();
     }
 
     osg::ref_ptr<osg::Texture2D> CharacterPreview::getTexture()
@@ -165,10 +218,10 @@ namespace MWRender
 
     void CharacterPreview::rebuild()
     {
-        mAnimation.reset(NULL);
+        mAnimation = NULL;
 
-        mAnimation.reset(new NpcAnimation(mCharacter, mNode, mResourceSystem, true, true,
-                                      (renderHeadOnly() ? NpcAnimation::VM_HeadOnly : NpcAnimation::VM_Normal)));
+        mAnimation = new NpcAnimation(mCharacter, mNode, mResourceSystem, true,
+                                      (renderHeadOnly() ? NpcAnimation::VM_HeadOnly : NpcAnimation::VM_Normal));
 
         onSetup();
 
@@ -177,15 +230,15 @@ namespace MWRender
 
     void CharacterPreview::redraw()
     {
-        mCamera->setNodeMask(~0);
+        mCamera->setNodeMask(Mask_RenderToTexture);
         mDrawOnceCallback->redrawNextFrame();
     }
 
     // --------------------------------------------------------------------------------------------------
 
 
-    InventoryPreview::InventoryPreview(osgViewer::Viewer* viewer, Resource::ResourceSystem* resourceSystem, MWWorld::Ptr character)
-        : CharacterPreview(viewer, resourceSystem, character, 512, 1024, osg::Vec3f(0, 700, 71), osg::Vec3f(0,0,71))
+    InventoryPreview::InventoryPreview(osg::Group* parent, Resource::ResourceSystem* resourceSystem, MWWorld::Ptr character)
+        : CharacterPreview(parent, resourceSystem, character, 512, 1024, osg::Vec3f(0, 700, 71), osg::Vec3f(0,0,71))
     {
     }
 
@@ -215,10 +268,10 @@ namespace MWRender
             groupname = "inventoryhandtohand";
         else
         {
-            const std::string &type = iter->getTypeName();
-            if(type == typeid(ESM::Lockpick).name() || type == typeid(ESM::Probe).name())
+            const std::string &typeName = iter->getTypeName();
+            if(typeName == typeid(ESM::Lockpick).name() || typeName == typeid(ESM::Probe).name())
                 groupname = "inventoryweapononehand";
-            else if(type == typeid(ESM::Weapon).name())
+            else if(typeName == typeid(ESM::Weapon).name())
             {
                 MWWorld::LiveCellRef<ESM::Weapon> *ref = iter->get<ESM::Weapon>();
 
@@ -264,6 +317,8 @@ namespace MWRender
 
         mAnimation->runAnimation(0.0f);
 
+        setBlendMode();
+
         redraw();
     }
 
@@ -303,6 +358,7 @@ namespace MWRender
 
     void InventoryPreview::onSetup()
     {
+        CharacterPreview::onSetup();
         osg::Vec3f scale (1.f, 1.f, 1.f);
         mCharacter.getClass().adjustScale(mCharacter, scale, true);
 
@@ -313,8 +369,8 @@ namespace MWRender
 
     // --------------------------------------------------------------------------------------------------
 
-    RaceSelectionPreview::RaceSelectionPreview(osgViewer::Viewer* viewer, Resource::ResourceSystem* resourceSystem)
-        : CharacterPreview(viewer, resourceSystem, MWMechanics::getPlayer(),
+    RaceSelectionPreview::RaceSelectionPreview(osg::Group* parent, Resource::ResourceSystem* resourceSystem)
+        : CharacterPreview(parent, resourceSystem, MWMechanics::getPlayer(),
             512, 512, osg::Vec3f(0, 125, 8), osg::Vec3f(0,0,8))
         , mBase (*mCharacter.get<ESM::NPC>()->mBase)
         , mRef(&mBase)
@@ -359,10 +415,10 @@ namespace MWRender
             traverse(node, nv);
 
             // Now update camera utilizing the updated head position
-            osg::MatrixList mats = mNodeToFollow->getWorldMatrices();
-            if (!mats.size())
+            osg::NodePathList nodepaths = mNodeToFollow->getParentalNodePaths();
+            if (nodepaths.empty())
                 return;
-            osg::Matrix worldMat = mats[0];
+            osg::Matrix worldMat = osg::computeLocalToWorld(nodepaths[0]);
             osg::Vec3 headOffset = worldMat.getTrans();
 
             cam->setViewMatrixAsLookAt(headOffset + mPosOffset, headOffset + mLookAtOffset, osg::Vec3(0,0,1));
@@ -376,6 +432,7 @@ namespace MWRender
 
     void RaceSelectionPreview::onSetup ()
     {
+        CharacterPreview::onSetup();
         mAnimation->play("idle", 1, Animation::BlendMask_All, false, 1.0f, "start", "stop", 0.0f, 0);
         mAnimation->runAnimation(0.f);
 

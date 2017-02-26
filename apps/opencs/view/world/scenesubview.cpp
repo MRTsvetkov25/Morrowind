@@ -38,7 +38,7 @@ CSVWorld::SceneSubView::SceneSubView (const CSMWorld::UniversalId& id, CSMDoc::D
     CSVRender::WorldspaceWidget* worldspaceWidget = NULL;
     widgetType whatWidget;
 
-    if (id.getId()=="sys::default")
+    if (id.getId()==ESM::CellId::sDefaultWorldspace)
     {
         whatWidget = widget_Paged;
 
@@ -112,7 +112,7 @@ CSVWidget::SceneToolbar* CSVWorld::SceneSubView::makeToolbar (CSVRender::Worldsp
 
     if (type==widget_Paged)
     {
-        CSVWidget::SceneToolToggle *controlVisibilityTool =
+        CSVWidget::SceneToolToggle2 *controlVisibilityTool =
             dynamic_cast<CSVRender::PagedWorldspaceWidget&> (*widget).
             makeControlVisibilitySelector (toolbar);
 
@@ -160,7 +160,7 @@ void CSVWorld::SceneSubView::cellSelectionChanged (const CSMWorld::UniversalId& 
 
 void CSVWorld::SceneSubView::cellSelectionChanged (const CSMWorld::CellSelection& selection)
 {
-    setUniversalId(CSMWorld::UniversalId(CSMWorld::UniversalId::Type_Scene, "sys::default"));
+    setUniversalId(CSMWorld::UniversalId(CSMWorld::UniversalId::Type_Scene, ESM::CellId::sDefaultWorldspace));
     int size = selection.getSize();
 
     std::ostringstream stream;
@@ -187,18 +187,18 @@ void CSVWorld::SceneSubView::cellSelectionChanged (const CSMWorld::CellSelection
     emit updateTitle();
 }
 
-void CSVWorld::SceneSubView::handleDrop (const std::vector< CSMWorld::UniversalId >& data)
+void CSVWorld::SceneSubView::handleDrop (const std::vector< CSMWorld::UniversalId >& universalIdData)
 {
     CSVRender::PagedWorldspaceWidget* pagedNewWidget = NULL;
     CSVRender::UnpagedWorldspaceWidget* unPagedNewWidget = NULL;
     CSVWidget::SceneToolbar* toolbar = NULL;
 
-    CSVRender::WorldspaceWidget::DropType type = CSVRender::WorldspaceWidget::getDropType (data);
+    CSVRender::WorldspaceWidget::DropType type = CSVRender::WorldspaceWidget::getDropType (universalIdData);
 
     switch (mScene->getDropRequirements (type))
     {
         case CSVRender::WorldspaceWidget::canHandle:
-            mScene->handleDrop (data, type);
+            mScene->handleDrop (universalIdData, type);
             break;
 
         case CSVRender::WorldspaceWidget::needPaged:
@@ -206,15 +206,15 @@ void CSVWorld::SceneSubView::handleDrop (const std::vector< CSMWorld::UniversalI
             toolbar = makeToolbar(pagedNewWidget, widget_Paged);
             makeConnections(pagedNewWidget);
             replaceToolbarAndWorldspace(pagedNewWidget, toolbar);
-            mScene->handleDrop (data, type);
+            mScene->handleDrop (universalIdData, type);
             break;
 
         case CSVRender::WorldspaceWidget::needUnpaged:
-            unPagedNewWidget = new CSVRender::UnpagedWorldspaceWidget(data.begin()->getId(), mDocument, this);
+            unPagedNewWidget = new CSVRender::UnpagedWorldspaceWidget(universalIdData.begin()->getId(), mDocument, this);
             toolbar = makeToolbar(unPagedNewWidget, widget_Unpaged);
             makeConnections(unPagedNewWidget);
             replaceToolbarAndWorldspace(unPagedNewWidget, toolbar);
-            cellSelectionChanged(*(data.begin()));
+            cellSelectionChanged(*(universalIdData.begin()));
             break;
 
         case CSVRender::WorldspaceWidget::ignored:

@@ -48,7 +48,7 @@
 
 namespace MWDialogue
 {
-    DialogueManager::DialogueManager (const Compiler::Extensions& extensions, bool scriptVerbose, Translation::Storage& translationDataStorage) :
+    DialogueManager::DialogueManager (const Compiler::Extensions& extensions, Translation::Storage& translationDataStorage) :
       mTranslationDataStorage(translationDataStorage)
       , mCompilerContext (MWScript::CompilerContext::Type_Dialogue)
       , mErrorStream(std::cout.rdbuf())
@@ -174,7 +174,7 @@ namespace MWDialogue
                     executeScript (info->mResultScript);
                     mLastTopic = Misc::StringUtils::lowerCase(it->mId);
 
-                    // update topics again to accomodate changes resulting from executeScript
+                    // update topics again to accommodate changes resulting from executeScript
                     updateTopics();
 
                     return;
@@ -197,6 +197,8 @@ namespace MWDialogue
         try
         {
             mErrorHandler.reset();
+
+            mErrorHandler.setContext("[dialogue script]");
 
             std::istringstream input (cmd + "\n");
 
@@ -451,6 +453,11 @@ namespace MWDialogue
         // Apply disposition change to NPC's base disposition
         if (mActor.getClass().isNpc())
         {
+            // Clamp permanent disposition change so that final disposition doesn't go below 0 (could happen with intimidate)       
+            float curDisp = static_cast<float>(MWBase::Environment::get().getMechanicsManager()->getDerivedDisposition(mActor, false));
+            if (curDisp + mPermanentDispositionChange < 0)
+                mPermanentDispositionChange = -curDisp;
+
             MWMechanics::NpcStats& npcStats = mActor.getClass().getNpcStats(mActor);
             npcStats.setBaseDisposition(static_cast<int>(npcStats.getBaseDisposition() + mPermanentDispositionChange));
         }
@@ -529,13 +536,13 @@ namespace MWDialogue
         bool success;
         float temp, perm;
         MWBase::Environment::get().getMechanicsManager()->getPersuasionDispositionChange(
-                    mActor, MWBase::MechanicsManager::PersuasionType(type), mTemporaryDispositionChange,
+                    mActor, MWBase::MechanicsManager::PersuasionType(type),
                     success, temp, perm);
         mTemporaryDispositionChange += temp;
         mPermanentDispositionChange += perm;
 
         // change temp disposition so that final disposition is between 0...100
-        float curDisp = static_cast<float>(MWBase::Environment::get().getMechanicsManager()->getDerivedDisposition(mActor));
+        float curDisp = static_cast<float>(MWBase::Environment::get().getMechanicsManager()->getDerivedDisposition(mActor, false));
         if (curDisp + mTemporaryDispositionChange < 0)
             mTemporaryDispositionChange = -curDisp;
         else if (curDisp + mTemporaryDispositionChange > 100)
@@ -629,7 +636,8 @@ namespace MWDialogue
         const MWWorld::ESMStore &store = MWBase::Environment::get().getWorld()->getStore();
         const ESM::Dialogue *dial = store.get<ESM::Dialogue>().find(topic);
 
-        Filter filter(actor, 0, false);
+        const MWMechanics::CreatureStats& creatureStats = actor.getClass().getCreatureStats(actor);
+        Filter filter(actor, 0, creatureStats.hasTalkedToPlayer());
         const ESM::DialInfo *info = filter.search(*dial, false);
         if(info != NULL)
         {

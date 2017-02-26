@@ -14,6 +14,7 @@
 #include "objectcache.hpp"
 
 #include <osg/Object>
+#include <osg/Node>
 
 namespace Resource
 {
@@ -46,6 +47,18 @@ osg::ref_ptr<osg::Object> ObjectCache::getRefFromObjectCache(const std::string& 
         return itr->second.first;
     }
     else return 0;
+}
+
+bool ObjectCache::checkInObjectCache(const std::string &fileName, double timeStamp)
+{
+    OpenThreads::ScopedLock<OpenThreads::Mutex> lock(_objectCacheMutex);
+    ObjectCacheMap::iterator itr = _objectCache.find(fileName);
+    if (itr!=_objectCache.end())
+    {
+        itr->second.second = timeStamp;
+        return true;
+    }
+    else return false;
 }
 
 void ObjectCache::updateTimeStampOfObjectsInCacheWithExternalReferences(double referenceTime)
@@ -117,6 +130,30 @@ void ObjectCache::releaseGLObjects(osg::State* state)
         osg::Object* object = itr->second.first.get();
         object->releaseGLObjects(state);
     }
+}
+
+void ObjectCache::accept(osg::NodeVisitor &nv)
+{
+    OpenThreads::ScopedLock<OpenThreads::Mutex> lock(_objectCacheMutex);
+
+    for(ObjectCacheMap::iterator itr = _objectCache.begin();
+        itr != _objectCache.end();
+        ++itr)
+    {
+        osg::Object* object = itr->second.first.get();
+        if (object)
+        {
+            osg::Node* node = dynamic_cast<osg::Node*>(object);
+            if (node)
+                node->accept(nv);
+        }
+    }
+}
+
+unsigned int ObjectCache::getCacheSize() const
+{
+    OpenThreads::ScopedLock<OpenThreads::Mutex> lock(_objectCacheMutex);
+    return _objectCache.size();
 }
 
 }

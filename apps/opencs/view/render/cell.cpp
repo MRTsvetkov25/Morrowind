@@ -1,9 +1,14 @@
 #include "cell.hpp"
 
+#include <osg/PositionAttitudeTransform>
+#include <osg/Geode>
+#include <osg/Geometry>
 #include <osg/Group>
 
 #include <components/misc/stringops.hpp>
+#include <components/esm/loadcell.hpp>
 #include <components/esm/loadland.hpp>
+#include <components/sceneutil/pathgridutil.hpp>
 
 #include "../../model/world/idtable.hpp"
 #include "../../model/world/columns.hpp"
@@ -11,7 +16,9 @@
 #include "../../model/world/refcollection.hpp"
 #include "../../model/world/cellcoordinates.hpp"
 
+#include "cellwater.hpp"
 #include "mask.hpp"
+#include "pathgrid.hpp"
 #include "terrainstorage.hpp"
 
 bool CSVRender::Cell::removeObject (const std::string& id)
@@ -50,7 +57,12 @@ bool CSVRender::Cell::addObjects (int start, int end)
         {
             std::string id = Misc::StringUtils::lowerCase (collection.getRecord (i).get().mId);
 
-            mObjects.insert (std::make_pair (id, new Object (mData, mCellNode, id, false)));
+            std::auto_ptr<Object> object (new Object (mData, mCellNode, id, false));
+
+            if (mSubModeElementMask & Mask_Reference)
+                object->setSubMode (mSubMode);
+
+            mObjects.insert (std::make_pair (id, object.release()));
             modified = true;
         }
     }
@@ -60,7 +72,8 @@ bool CSVRender::Cell::addObjects (int start, int end)
 
 CSVRender::Cell::Cell (CSMWorld::Data& data, osg::Group* rootNode, const std::string& id,
     bool deleted)
-: mData (data), mId (Misc::StringUtils::lowerCase (id)), mDeleted (deleted)
+: mData (data), mId (Misc::StringUtils::lowerCase (id)), mDeleted (deleted), mSubMode (0),
+  mSubModeElementMask (0)
 {
     std::pair<CSMWorld::CellCoordinates, bool> result = CSMWorld::CellCoordinates::fromId (id);
 
@@ -69,6 +82,8 @@ CSVRender::Cell::Cell (CSMWorld::Data& data, osg::Group* rootNode, const std::st
 
     mCellNode = new osg::Group;
     rootNode->addChild(mCellNode);
+
+    setCellMarker();
 
     if (!mDeleted)
     {
@@ -90,8 +105,14 @@ CSVRender::Cell::Cell (CSMWorld::Data& data, osg::Group* rootNode, const std::st
                 mTerrain.reset(new Terrain::TerrainGrid(mCellNode, data.getResourceSystem().get(), NULL, new TerrainStorage(mData), Mask_Terrain));
                 mTerrain->loadCell(esmLand.mX,
                                    esmLand.mY);
+
+                mCellBorder.reset(new CellBorder(mCellNode, mCoordinates));
+                mCellBorder->buildShape(esmLand);
             }
         }
+
+        mPathgrid.reset(new Pathgrid(mData, mCellNode, mId, mCoordinates));
+        mCellWater.reset(new CellWater(mData, mCellNode, mId, mCoordinates));
     }
 }
 
@@ -102,6 +123,11 @@ CSVRender::Cell::~Cell()
         delete iter->second;
 
     mCellNode->getParent(0)->removeChild(mCellNode);
+}
+
+CSVRender::Pathgrid* CSVRender::Cell::getPathgrid() const
+{
+    return mPathgrid.get();
 }
 
 bool CSVRender::Cell::referenceableDataChanged (const QModelIndex& topLeft,
@@ -193,12 +219,12 @@ bool CSVRender::Cell::referenceDataChanged (const QModelIndex& topLeft,
     }
 
     // add new objects
-    for (std::map<std::string, bool>::iterator iter (ids.begin()); iter!=ids.end(); ++iter)
+    for (std::map<std::string, bool>::iterator mapIter (ids.begin()); mapIter!=ids.end(); ++mapIter)
     {
-        if (!iter->second)
+        if (!mapIter->second)
         {
             mObjects.insert (std::make_pair (
-                iter->first, new Object (mData, mCellNode, iter->first, false)));
+                mapIter->first, new Object (mData, mCellNode, mapIter->first, false)));
 
             modified = true;
         }
@@ -242,6 +268,16 @@ bool CSVRender::Cell::referenceAdded (const QModelIndex& parent, int start, int 
     return addObjects (start, end);
 }
 
+void CSVRender::Cell::pathgridModified()
+{
+    mPathgrid->recreateGeometry();
+}
+
+void CSVRender::Cell::pathgridRemoved()
+{
+    mPathgrid->removeGeometry();
+}
+
 void CSVRender::Cell::setSelection (int elementMask, Selection mode)
 {
     if (elementMask & Mask_Reference)
@@ -259,6 +295,27 @@ void CSVRender::Cell::setSelection (int elementMask, Selection mode)
             }
 
             iter->second->setSelected (selected);
+        }
+    }
+    if (elementMask & Mask_Pathgrid)
+    {
+        // Only one pathgrid may be selected, so some operations will only have an effect
+        // if the pathgrid is already focused
+        switch (mode)
+        {
+            case Selection_Clear:
+                mPathgrid->clearSelected();
+                break;
+
+            case Selection_All:
+                if (mPathgrid->isSelected())
+                    mPathgrid->selectAll();
+                break;
+
+            case Selection_Invert:
+                if (mPathgrid->isSelected())
+                    mPathgrid->invertSelected();
+                break;
         }
     }
 }
@@ -303,6 +360,24 @@ void CSVRender::Cell::setCellArrows (int mask)
     }
 }
 
+void CSVRender::Cell::setCellMarker()
+{
+    bool cellExists = false;
+    bool isInteriorCell = false;
+
+    int cellIndex = mData.getCells().searchId(mId);
+    if (cellIndex > -1)
+    {
+        const CSMWorld::Record<CSMWorld::Cell>& cellRecord = mData.getCells().getRecord(cellIndex);
+        cellExists = !cellRecord.isDeleted();
+        isInteriorCell = cellRecord.get().mData.mFlags & ESM::Cell::Interior;
+    }
+
+    if (!isInteriorCell) {
+        mCellMarker.reset(new CellMarker(mCellNode, mCoordinates, cellExists));
+    }
+}
+
 CSMWorld::CellCoordinates CSVRender::Cell::getCoordinates() const
 {
     return mCoordinates;
@@ -322,6 +397,43 @@ std::vector<osg::ref_ptr<CSVRender::TagBase> > CSVRender::Cell::getSelection (un
             iter!=mObjects.end(); ++iter)
             if (iter->second->getSelected())
                 result.push_back (iter->second->getTag());
+    if (elementMask & Mask_Pathgrid)
+        if (mPathgrid->isSelected())
+            result.push_back(mPathgrid->getTag());
 
     return result;
+}
+
+std::vector<osg::ref_ptr<CSVRender::TagBase> > CSVRender::Cell::getEdited (unsigned int elementMask) const
+{
+    std::vector<osg::ref_ptr<TagBase> > result;
+
+    if (elementMask & Mask_Reference)
+        for (std::map<std::string, Object *>::const_iterator iter (mObjects.begin());
+            iter!=mObjects.end(); ++iter)
+            if (iter->second->isEdited())
+                result.push_back (iter->second->getTag());
+
+    return result;
+}
+
+void CSVRender::Cell::setSubMode (int subMode, unsigned int elementMask)
+{
+    mSubMode = subMode;
+    mSubModeElementMask = elementMask;
+
+    if (elementMask & Mask_Reference)
+        for (std::map<std::string, Object *>::const_iterator iter (mObjects.begin());
+            iter!=mObjects.end(); ++iter)
+                iter->second->setSubMode (subMode);
+}
+
+void CSVRender::Cell::reset (unsigned int elementMask)
+{
+    if (elementMask & Mask_Reference)
+        for (std::map<std::string, Object *>::const_iterator iter (mObjects.begin());
+            iter!=mObjects.end(); ++iter)
+            iter->second->reset();
+    if (elementMask & Mask_Pathgrid)
+        mPathgrid->resetIndicators();
 }

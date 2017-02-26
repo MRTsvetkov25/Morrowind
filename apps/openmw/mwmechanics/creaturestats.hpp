@@ -34,7 +34,8 @@ namespace MWMechanics
         Stat<int> mAiSettings[4];
         AiSequence mAiSequence;
         bool mDead;
-        bool mDied;
+        bool mDeathAnimationFinished;
+        bool mDied; // flag for OnDeath script function
         bool mMurdered;
         int mFriendlyHits;
         bool mTalkedTo;
@@ -61,9 +62,13 @@ namespace MWMechanics
         int mGoldPool;
 
         int mActorId;
+        int mHitAttemptActorId; // Stores an actor that attacked this actor. Only one is stored at a time,
+                                // and it is not changed if a different actor attacks. It is cleared when combat ends.
 
-        // The index of the death animation that was played
-        unsigned char mDeathAnimation;
+        // The index of the death animation that was played, or -1 if none played
+        signed char mDeathAnimation;
+
+        MWWorld::TimeStamp mTimeOfDeath;
 
     public:
         typedef std::pair<int, std::string> SummonKey; // <ESM::MagicEffect index, spell ID>
@@ -159,6 +164,9 @@ namespace MWMechanics
 
         bool isDead() const;
 
+        bool isDeathAnimationFinished() const;
+        void setDeathAnimationFinished(bool finished);
+
         void notifyDied();
 
         bool hasDied() const;
@@ -235,9 +243,11 @@ namespace MWMechanics
         bool getStance (Stance flag) const;
 
         void setLastHitObject(const std::string &objectid);
-        void setLastHitAttemptObject(const std::string &objectid);
         const std::string &getLastHitObject() const;
+        void setLastHitAttemptObject(const std::string &objectid);
         const std::string &getLastHitAttemptObject() const;
+        void setHitAttemptActorId(const int actorId);
+        int getHitAttemptActorId() const;
 
         // Note, this is just a cache to avoid checking the whole container store every frame. We don't need to store it in saves.
         // TODO: Put it somewhere else?
@@ -256,8 +266,10 @@ namespace MWMechanics
         void setGoldPool(int pool);
         int getGoldPool() const;
 
-        unsigned char getDeathAnimation() const;
-        void setDeathAnimation(unsigned char index);
+        signed char getDeathAnimation() const; // -1 means not decided
+        void setDeathAnimation(signed char index);
+
+        MWWorld::TimeStamp getTimeOfDeath() const;
 
         int getActorId();
         ///< Will generate an actor ID, if the actor does not have one yet.

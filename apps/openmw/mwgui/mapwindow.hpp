@@ -11,6 +11,11 @@
 
 #include <components/esm/custommarkerstate.hpp>
 
+namespace mwmp
+{
+    class GUIController;
+}
+
 namespace MWRender
 {
     class GlobalMap;
@@ -31,6 +36,11 @@ namespace MWWorld
 namespace Loading
 {
     class Listener;
+}
+
+namespace SceneUtil
+{
+    class WorkQueue;
 }
 
 namespace MWGui
@@ -65,6 +75,7 @@ namespace MWGui
 
     class LocalMapBase
     {
+        friend class mwmp::GUIController;
     public:
         LocalMapBase(CustomMarkerCollection& markers, MWRender::LocalMap* localMapRender, bool fogOfWarEnabled = true);
         virtual ~LocalMapBase();
@@ -133,8 +144,10 @@ namespace MWGui
         std::vector<MyGUI::Widget*> mDoorMarkerWidgets;
         std::vector<MyGUI::Widget*> mMagicMarkerWidgets;
         std::vector<MyGUI::Widget*> mCustomMarkerWidgets;
+        std::vector<MyGUI::Widget*> mPlayerMarkerWidgets;
 
         virtual void updateCustomMarkers();
+        virtual void updatePlayerMarkers();
 
         void applyFogOfWar();
 
@@ -155,6 +168,10 @@ namespace MWGui
 
         float mLastDirectionX;
         float mLastDirectionY;
+
+    private:
+        void updateDoorMarkers();
+        bool mNeedDoorMarkersUpdate;
     };
 
     class EditNoteDialog : public MWGui::WindowModal
@@ -188,15 +205,16 @@ namespace MWGui
 
     class MapWindow : public MWGui::WindowPinnableBase, public LocalMapBase, public NoDrop
     {
+        friend class mwmp::GUIController;
     public:
-        MapWindow(CustomMarkerCollection& customMarkers, DragAndDrop* drag, MWRender::LocalMap* localMapRender);
+        MapWindow(CustomMarkerCollection& customMarkers, DragAndDrop* drag, MWRender::LocalMap* localMapRender, SceneUtil::WorkQueue* workQueue);
         virtual ~MapWindow();
 
         void setCellName(const std::string& cellName);
 
         virtual void setAlpha(float alpha);
 
-        void renderGlobalMap(Loading::Listener* loadingListener);
+        void renderGlobalMap();
 
         /// adds the marker to the global map
         /// @param name The ESM::Cell::mName
@@ -208,11 +226,14 @@ namespace MWGui
         void setGlobalMapPlayerPosition (float worldX, float worldY);
         void setGlobalMapPlayerDir(const float x, const float y);
 
+        void ensureGlobalMapLoaded();
+
         virtual void open();
 
         void onFrame(float dt);
 
         virtual void updateCustomMarkers();
+        virtual void updatePlayerMarkers();
 
         /// Clear all savegame-specific data
         void clear();

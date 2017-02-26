@@ -86,16 +86,22 @@ namespace MWGui
     {
         MWBase::Environment::get().getStateManager()->deleteGame (mCurrentCharacter, mCurrentSlot);
         mSaveList->removeItemAt(mSaveList->getIndexSelected());
-        onSlotSelected(mSaveList, MyGUI::ITEM_NONE);
+        onSlotSelected(mSaveList, mSaveList->getIndexSelected());
+        MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mSaveList);
 
-        // The character might be deleted now
-        size_t previousIndex = mCharacterSelection->getIndexSelected();
-        open();
-        if (mCharacterSelection->getItemCount())
+        if (mSaveList->getItemCount() == 0)
         {
-            size_t nextCharacter = std::min(previousIndex, mCharacterSelection->getItemCount()-1);
-            mCharacterSelection->setIndexSelected(nextCharacter);
-            onCharacterSelected(mCharacterSelection, nextCharacter);
+            size_t previousIndex = mCharacterSelection->getIndexSelected();
+            mCurrentCharacter = NULL;
+            mCharacterSelection->removeItemAt(previousIndex);
+            if (mCharacterSelection->getItemCount())
+            {
+                size_t nextCharacter = std::min(previousIndex, mCharacterSelection->getItemCount()-1);
+                mCharacterSelection->setIndexSelected(nextCharacter);
+                onCharacterSelected(mCharacterSelection, nextCharacter);
+            }
+            else
+                fillSaveList();
         }
     }
 
@@ -132,7 +138,7 @@ namespace MWGui
         if (mgr->characterBegin() == mgr->characterEnd())
             return;
 
-        mCurrentCharacter = mgr->getCurrentCharacter (false);
+        mCurrentCharacter = mgr->getCurrentCharacter();
 
         std::string directory =
             Misc::StringUtils::lowerCase (Settings::Manager::getString ("character", "Saves"));
@@ -202,7 +208,7 @@ namespace MWGui
 
         if (!load)
         {
-            mCurrentCharacter = MWBase::Environment::get().getStateManager()->getCurrentCharacter (false);
+            mCurrentCharacter = MWBase::Environment::get().getStateManager()->getCurrentCharacter();
         }
 
         center();

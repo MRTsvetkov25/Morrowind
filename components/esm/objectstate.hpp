@@ -6,6 +6,7 @@
 
 #include "cellref.hpp"
 #include "locals.hpp"
+#include "animationstate.hpp"
 
 namespace ESM
 {
@@ -24,11 +25,14 @@ namespace ESM
         unsigned char mEnabled;
         int mCount;
         ESM::Position mPosition;
+        unsigned int mFlags;
 
         // Is there any class-specific state following the ObjectState
         bool mHasCustomState;
 
         unsigned int mVersion;
+
+        ESM::AnimationState mAnimationState;
 
         ObjectState() : mHasCustomState(true), mVersion(0)
         {}

@@ -21,6 +21,11 @@ namespace SceneUtil
 
         virtual void apply(osg::Group& group);
 
+        virtual void apply(osg::MatrixTransform& node);
+        virtual void apply(osg::Geometry& node);
+
+        bool checkGroup(osg::Group& group);
+
         std::string mNameToFind;
         osg::Group* mFoundNode;
     };
@@ -34,7 +39,8 @@ namespace SceneUtil
         {
         }
 
-        virtual void apply(osg::Geode &geode);
+        virtual void apply(osg::MatrixTransform& node);
+
         virtual void apply(osg::Drawable& drw);
     };
 

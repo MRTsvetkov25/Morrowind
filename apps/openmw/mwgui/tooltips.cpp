@@ -256,7 +256,7 @@ namespace MWGui
                         std::string key = it->first.substr(0, underscorePos);
                         std::string widgetName = it->first.substr(underscorePos+1, it->first.size()-(underscorePos+1));
 
-                        std::string type = "Property";
+                        type = "Property";
                         size_t caretPos = key.find("^");
                         if (caretPos != std::string::npos)
                         {
@@ -395,15 +395,18 @@ namespace MWGui
         const MWWorld::ESMStore& store = MWBase::Environment::get().getWorld()->getStore();
         if (info.enchant != "")
         {
-            enchant = store.get<ESM::Enchantment>().find(info.enchant);
-            if (enchant->mData.mType == ESM::Enchantment::CastOnce)
-                text += "\n#{sItemCastOnce}";
-            else if (enchant->mData.mType == ESM::Enchantment::WhenStrikes)
-                text += "\n#{sItemCastWhenStrikes}";
-            else if (enchant->mData.mType == ESM::Enchantment::WhenUsed)
-                text += "\n#{sItemCastWhenUsed}";
-            else if (enchant->mData.mType == ESM::Enchantment::ConstantEffect)
-                text += "\n#{sItemCastConstant}";
+            enchant = store.get<ESM::Enchantment>().search(info.enchant);
+            if (enchant)
+            {
+                if (enchant->mData.mType == ESM::Enchantment::CastOnce)
+                    text += "\n#{sItemCastOnce}";
+                else if (enchant->mData.mType == ESM::Enchantment::WhenStrikes)
+                    text += "\n#{sItemCastWhenStrikes}";
+                else if (enchant->mData.mType == ESM::Enchantment::WhenUsed)
+                    text += "\n#{sItemCastWhenUsed}";
+                else if (enchant->mData.mType == ESM::Enchantment::ConstantEffect)
+                    text += "\n#{sItemCastConstant}";
+            }
         }
 
         // this the maximum width of the tooltip before it starts word-wrapping
@@ -472,9 +475,8 @@ namespace MWGui
             totalSize.width = std::max(totalSize.width, coord.width);
         }
 
-        if (info.enchant != "")
+        if (enchant)
         {
-            assert(enchant);
             MyGUI::Widget* enchantArea = mDynamicToolTipBox->createWidget<MyGUI::Widget>("",
                 MyGUI::IntCoord(padding.left, totalSize.height, 300-padding.left, 300-totalSize.height),
                 MyGUI::Align::Stretch);
@@ -582,6 +584,14 @@ namespace MWGui
         std::ostringstream stream;
         stream << value;
         return stream.str();
+    }
+
+    std::string ToolTips::getWeightString(const float weight, const std::string& prefix)
+    {
+        if (weight == 0)
+            return "";
+        else
+            return "\n" + prefix + ": " + toString(weight);
     }
 
     std::string ToolTips::getValueString(const int value, const std::string& prefix)
@@ -725,9 +735,7 @@ namespace MWGui
 
         std::vector<std::string> abilities, powers, spells;
 
-        std::vector<std::string>::const_iterator it = sign->mPowers.mList.begin();
-        std::vector<std::string>::const_iterator end = sign->mPowers.mList.end();
-        for (; it != end; ++it)
+        for (std::vector<std::string>::const_iterator it = sign->mPowers.mList.begin(); it != sign->mPowers.mList.end(); ++it)
         {
             const std::string &spellId = *it;
             const ESM::Spell *spell = store.get<ESM::Spell>().search(spellId);

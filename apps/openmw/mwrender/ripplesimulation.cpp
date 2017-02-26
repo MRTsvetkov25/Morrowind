@@ -3,7 +3,6 @@
 #include <iomanip>
 
 #include <osg/PolygonOffset>
-#include <osg/Geode>
 #include <osg/Texture2D>
 #include <osg/Material>
 #include <osg/Depth>
@@ -40,11 +39,11 @@ namespace
         {
             std::ostringstream texname;
             texname << "textures/water/" << tex << std::setw(2) << std::setfill('0') << i << ".dds";
-            osg::ref_ptr<osg::Texture2D> tex (new osg::Texture2D(resourceSystem->getImageManager()->getImage(texname.str())));
-            tex->setWrap(osg::Texture::WRAP_S, osg::Texture::REPEAT);
-            tex->setWrap(osg::Texture::WRAP_T, osg::Texture::REPEAT);
-            resourceSystem->getSceneManager()->applyFilterSettings(tex);
-            textures.push_back(tex);
+            osg::ref_ptr<osg::Texture2D> tex2 (new osg::Texture2D(resourceSystem->getImageManager()->getImage(texname.str())));
+            tex2->setWrap(osg::Texture::WRAP_S, osg::Texture::REPEAT);
+            tex2->setWrap(osg::Texture::WRAP_T, osg::Texture::REPEAT);
+            resourceSystem->getSceneManager()->applyFilterSettings(tex2);
+            textures.push_back(tex2);
         }
 
         osg::ref_ptr<NifOsg::FlipController> controller (new NifOsg::FlipController(0, 0.3f/rippleFrameCount, textures));
@@ -85,10 +84,7 @@ namespace MWRender
 RippleSimulation::RippleSimulation(osg::Group *parent, Resource::ResourceSystem* resourceSystem, const Fallback::Map* fallback)
     : mParent(parent)
 {
-    osg::ref_ptr<osg::Geode> geode (new osg::Geode);
-
     mParticleSystem = new osgParticle::ParticleSystem;
-    geode->addDrawable(mParticleSystem);
 
     mParticleSystem->setParticleAlignment(osgParticle::ParticleSystem::FIXED);
     mParticleSystem->setAlignVectorX(osg::Vec3f(1,0,0));
@@ -106,7 +102,7 @@ RippleSimulation::RippleSimulation(osg::Group *parent, Resource::ResourceSystem*
 
     mParticleNode = new osg::PositionAttitudeTransform;
     mParticleNode->addChild(updater);
-    mParticleNode->addChild(geode);
+    mParticleNode->addChild(mParticleSystem);
     mParticleNode->setNodeMask(Mask_Effect);
 
     createWaterRippleStateSet(resourceSystem, fallback, mParticleNode);
@@ -121,6 +117,7 @@ RippleSimulation::~RippleSimulation()
 
 void RippleSimulation::update(float dt)
 {
+    const MWBase::World* world = MWBase::Environment::get().getWorld();
     for (std::vector<Emitter>::iterator it=mEmitters.begin(); it !=mEmitters.end(); ++it)
     {
         if (it->mPtr == MWBase::Environment::get().getWorld ()->getPlayerPtr())
@@ -132,10 +129,8 @@ void RippleSimulation::update(float dt)
 
         osg::Vec3f currentPos (it->mPtr.getRefData().getPosition().asVec3());
 
-        if ( (currentPos - it->mLastEmitPosition).length() > 10
-             // Only emit when close to the water surface, not above it and not too deep in the water
-            && MWBase::Environment::get().getWorld ()->isUnderwater (it->mPtr.getCell(), it->mPtr.getRefData().getPosition().asVec3())
-             && !MWBase::Environment::get().getWorld()->isSubmerged(it->mPtr))
+        bool shouldEmit = ( world->isUnderwater (it->mPtr.getCell(), it->mPtr.getRefData().getPosition().asVec3()) && !world->isSubmerged(it->mPtr) ) || world->isWalkingOnWater(it->mPtr);
+        if ( shouldEmit && (currentPos - it->mLastEmitPosition).length() > 10 )
         {
             it->mLastEmitPosition = currentPos;
 

@@ -11,6 +11,7 @@
 namespace CSVWidget
 {
    class SceneToolToggle;
+   class SceneToolToggle2;
 }
 
 namespace CSVRender
@@ -26,7 +27,7 @@ namespace CSVRender
             CSMWorld::CellSelection mSelection;
             std::map<CSMWorld::CellCoordinates, Cell *> mCells;
             std::string mWorldspace;
-            CSVWidget::SceneToolToggle *mControlElements;
+            CSVWidget::SceneToolToggle2 *mControlElements;
             bool mDisplayCellCoord;
 
         private:
@@ -51,6 +52,12 @@ namespace CSVRender
 
             virtual void referenceAdded (const QModelIndex& index, int start, int end);
 
+            virtual void pathgridDataChanged (const QModelIndex& topLeft, const QModelIndex& bottomRight);
+
+            virtual void pathgridAboutToBeRemoved (const QModelIndex& parent, int start, int end);
+
+            virtual void pathgridAdded (const QModelIndex& parent, int start, int end);
+
             virtual std::string getStartupInstruction();
 
             /// \note Does not update the view or any cell marker
@@ -67,6 +74,8 @@ namespace CSVRender
             /// \note Does not update the view or any cell marker
             void moveCellSelection (int x, int y);
 
+            void addCellToSceneFromCamera (int offsetX, int offsetY);
+
         public:
 
             PagedWorldspaceWidget (QWidget *parent, CSMDoc::Document& document);
@@ -75,7 +84,8 @@ namespace CSVRender
             /// hint system.
 
             virtual ~PagedWorldspaceWidget();
-
+            
+            /// Decodes the the hint string to set of cell that are rendered.
             void useViewHint (const std::string& hint);
 
             void setCellSelection(const CSMWorld::CellSelection& selection);
@@ -90,13 +100,16 @@ namespace CSVRender
 
             /// \attention The created tool is not added to the toolbar (via addTool). Doing
             /// that is the responsibility of the calling function.
-            virtual CSVWidget::SceneToolToggle *makeControlVisibilitySelector (
+            virtual CSVWidget::SceneToolToggle2 *makeControlVisibilitySelector (
                 CSVWidget::SceneToolbar *parent);
 
             virtual unsigned int getVisibilityMask() const;
 
             /// \param elementMask Elements to be affected by the clear operation
             virtual void clearSelection (int elementMask);
+
+            /// \param elementMask Elements to be affected by the select operation
+            virtual void invertSelection (int elementMask);
 
             /// \param elementMask Elements to be affected by the select operation
             virtual void selectAll (int elementMask);
@@ -109,8 +122,18 @@ namespace CSVRender
 
             virtual std::string getCellId (const osg::Vec3f& point) const;
 
+            virtual Cell* getCell(const osg::Vec3d& point) const;
+
             virtual std::vector<osg::ref_ptr<TagBase> > getSelection (unsigned int elementMask)
                 const;
+
+            virtual std::vector<osg::ref_ptr<TagBase> > getEdited (unsigned int elementMask)
+                const;
+
+            virtual void setSubMode (int subMode, unsigned int elementMask);
+
+            /// Erase all overrides and restore the visual representation to its true state.
+            virtual void reset (unsigned int elementMask);
 
         protected:
 
@@ -118,7 +141,7 @@ namespace CSVRender
 
             virtual void addEditModeSelectorButtons (CSVWidget::SceneToolMode *tool);
 
-            virtual void handleMouseClick (osg::ref_ptr<TagBase> tag, const std::string& button, bool shift);
+            virtual void handleInteractionPress (const WorldspaceHitResult& hit, InteractionType type);
 
         signals:
 
@@ -131,6 +154,16 @@ namespace CSVRender
             virtual void cellRemoved (const QModelIndex& parent, int start, int end);
 
             virtual void cellAdded (const QModelIndex& index, int start, int end);
+
+            void loadCameraCell();
+
+            void loadEastCell();
+
+            void loadNorthCell();
+
+            void loadWestCell();
+
+            void loadSouthCell();
 
     };
 }

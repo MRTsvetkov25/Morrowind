@@ -38,8 +38,10 @@ namespace ESM
         ESM::TimeStamp mTradeTime;
         int mGoldPool;
         int mActorId;
+        //int mHitAttemptActorId;
 
         bool mDead;
+        bool mDeathAnimationFinished;
         bool mDied;
         bool mMurdered;
         bool mTalkedTo;
@@ -56,7 +58,8 @@ namespace ESM
         std::string mLastHitAttemptObject;
         bool mRecalcDynamicStats;
         int mDrawState;
-        unsigned char mDeathAnimation;
+        signed char mDeathAnimation;
+        ESM::TimeStamp mTimeOfDeath;
 
         int mLevel;
 

@@ -67,46 +67,29 @@ namespace MWGui
     {
         MWMechanics::Alchemy::Result result = mAlchemy->create (mNameEdit->getCaption ());
 
-        if (result == MWMechanics::Alchemy::Result_NoName)
+        switch (result)
         {
+        case MWMechanics::Alchemy::Result_NoName:
             MWBase::Environment::get().getWindowManager()->messageBox("#{sNotifyMessage37}");
-            return;
-        }
-
-        // check if mortar & pestle is available (always needed)
-        if (result == MWMechanics::Alchemy::Result_NoMortarAndPestle)
-        {
+            break;
+        case MWMechanics::Alchemy::Result_NoMortarAndPestle:
             MWBase::Environment::get().getWindowManager()->messageBox("#{sNotifyMessage45}");
-            return;
-        }
-
-        // make sure 2 or more ingredients were selected
-        if (result == MWMechanics::Alchemy::Result_LessThanTwoIngredients)
-        {
+            break;
+        case MWMechanics::Alchemy::Result_LessThanTwoIngredients:
             MWBase::Environment::get().getWindowManager()->messageBox("#{sNotifyMessage6a}");
-            return;
-        }
-
-        if (result == MWMechanics::Alchemy::Result_NoEffects)
-        {
-            MWBase::Environment::get().getWindowManager()->messageBox("#{sNotifyMessage8}");
-            MWBase::Environment::get().getSoundManager()->playSound("potion fail", 1.f, 1.f);
-            return;
-        }
-
-        if (result == MWMechanics::Alchemy::Result_Success)
-        {
+            break;
+        case MWMechanics::Alchemy::Result_Success:
             MWBase::Environment::get().getWindowManager()->messageBox("#{sPotionSuccess}");
             MWBase::Environment::get().getSoundManager()->playSound("potion success", 1.f, 1.f);
-        }
-        else if (result == MWMechanics::Alchemy::Result_RandomFailure)
-        {
-            // potion failed
+            break;
+        case MWMechanics::Alchemy::Result_NoEffects:
+        case MWMechanics::Alchemy::Result_RandomFailure:
             MWBase::Environment::get().getWindowManager()->messageBox("#{sNotifyMessage8}");
             MWBase::Environment::get().getSoundManager()->playSound("potion fail", 1.f, 1.f);
+            break;
         }
 
-        // reduce count of the ingredients
+        // remove ingredient slots that have been fully used up
         for (int i=0; i<4; ++i)
             if (mIngredients[i]->isUserString("ToolTipType"))
             {
@@ -217,15 +200,15 @@ namespace MWGui
         std::set<MWMechanics::EffectKey> effectIds = mAlchemy->listEffects();
         Widgets::SpellEffectList list;
         unsigned int effectIndex=0;
-        for (std::set<MWMechanics::EffectKey>::iterator it = effectIds.begin(); it != effectIds.end(); ++it)
+        for (std::set<MWMechanics::EffectKey>::iterator it2 = effectIds.begin(); it2 != effectIds.end(); ++it2)
         {
             Widgets::SpellEffectParams params;
-            params.mEffectID = it->mId;
-            const ESM::MagicEffect* magicEffect = MWBase::Environment::get().getWorld()->getStore().get<ESM::MagicEffect>().find(it->mId);
+            params.mEffectID = it2->mId;
+            const ESM::MagicEffect* magicEffect = MWBase::Environment::get().getWorld()->getStore().get<ESM::MagicEffect>().find(it2->mId);
             if (magicEffect->mData.mFlags & ESM::MagicEffect::TargetSkill)
-                params.mSkill = it->mArg;
+                params.mSkill = it2->mArg;
             else if (magicEffect->mData.mFlags & ESM::MagicEffect::TargetAttribute)
-                params.mAttribute = it->mArg;
+                params.mAttribute = it2->mArg;
             params.mIsConstant = true;
             params.mNoTarget = true;
 

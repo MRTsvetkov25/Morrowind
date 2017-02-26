@@ -85,6 +85,7 @@ namespace CSMWorld
             Display_Enchantment,
             //CONCRETE TYPES ENDS HERE
 
+            Display_UnsignedInteger8,
             Display_Integer,
             Display_Float,
             Display_Var,
@@ -130,10 +131,14 @@ namespace CSMWorld
             Display_InfoCondComp,
             Display_String32,
             Display_LongString256,
+            Display_BookType,
+            Display_BloodType,
+            Display_EmitterType,
 
             Display_EffectSkill,     // must display at least one, unlike Display_Skill
             Display_EffectAttribute, // must display at least one, unlike Display_Attribute
             Display_IngredEffectId,  // display none allowed, unlike Display_EffectId
+            Display_GenderNpc,       // must display at least one, unlike Display_Gender
 
             //top level columns that nest other columns
             Display_NestedHeader

@@ -27,9 +27,14 @@ void ESM::ObjectState::load (ESMReader &esm)
     if (esm.isNextSub("LROT"))
         esm.skipHSub(); // local rotation, no longer used
 
+    mFlags = 0;
+    esm.getHNOT (mFlags, "FLAG");
+
     // obsolete
     int unused;
     esm.getHNOT(unused, "LTIM");
+
+    mAnimationState.load(esm);
 
     // FIXME: assuming "false" as default would make more sense, but also break compatibility with older save files
     mHasCustomState = true;
@@ -55,6 +60,11 @@ void ESM::ObjectState::save (ESMWriter &esm, bool inInventory) const
     if (!inInventory)
         esm.writeHNT ("POS_", mPosition, 24);
 
+    if (mFlags != 0)
+        esm.writeHNT ("FLAG", mFlags);
+
+    mAnimationState.save(esm);
+
     if (!mHasCustomState)
         esm.writeHNT ("HCUS", false);
 }
@@ -70,6 +80,7 @@ void ESM::ObjectState::blank()
         mPosition.pos[i] = 0;
         mPosition.rot[i] = 0;
     }
+    mFlags = 0;
     mHasCustomState = true;
 }
 

@@ -3,6 +3,7 @@
 #include <components/misc/stringops.hpp>
 
 #include "universalid.hpp"
+#include "infoselectwrapper.hpp"
 
 namespace CSMWorld
 {
@@ -97,7 +98,7 @@ namespace CSMWorld
             { ColumnId_ArmorType, "Armor Type" },
             { ColumnId_Health, "Health" },
             { ColumnId_ArmorValue, "Armor Value" },
-            { ColumnId_Scroll, "Scroll" },
+            { ColumnId_BookType, "Book Type" },
             { ColumnId_ClothingType, "Clothing Type" },
             { ColumnId_WeightCapacity, "Weight Capacity" },
             { ColumnId_OrganicContainer, "Organic Container" },
@@ -111,8 +112,8 @@ namespace CSMWorld
             { ColumnId_Flies, "Flies" },
             { ColumnId_Walks, "Walks" },
             { ColumnId_Essential, "Essential" },
-            { ColumnId_SkeletonBlood, "Skeleton Blood" },
-            { ColumnId_MetalBlood, "Metal Blood" },
+            { ColumnId_BloodType, "Blood Type" },
+
             { ColumnId_OpenSound, "Open Sound" },
             { ColumnId_CloseSound, "Close Sound" },
             { ColumnId_Duration, "Duration" },
@@ -122,10 +123,8 @@ namespace CSMWorld
             { ColumnId_Dynamic, "Dynamic" },
             { ColumnId_Portable, "Portable" },
             { ColumnId_NegativeLight, "Negative Light" },
-            { ColumnId_Flickering, "Flickering" },
-            { ColumnId_SlowFlickering, "Slow Flickering" },
-            { ColumnId_Pulsing, "Pulsing" },
-            { ColumnId_SlowPulsing, "Slow Pulsing" },
+            { ColumnId_EmitterType, "Emitter Type" },
+            
             { ColumnId_Fire, "Fire" },
             { ColumnId_OffByDefault, "Off by default" },
             { ColumnId_IsKey, "Is Key" },
@@ -273,8 +272,8 @@ namespace CSMWorld
             { ColumnId_InfoList, "Info List" },
             { ColumnId_InfoCondition, "Info Conditions" },
             { ColumnId_InfoCondFunc, "Function" },
-            { ColumnId_InfoCondVar, "Func/Variable" },
-            { ColumnId_InfoCondComp, "Comp" },
+            { ColumnId_InfoCondVar, "Variable/Object" },
+            { ColumnId_InfoCondComp, "Relation" },
             { ColumnId_InfoCondValue, "Values" },
             { ColumnId_OriginalCell, "Original Cell" },
 
@@ -284,6 +283,7 @@ namespace CSMWorld
             { ColumnId_NpcMisc, "NPC Misc" },
             { ColumnId_Level, "Level" },
             { ColumnId_NpcFactionID, "Faction ID" },
+            { ColumnId_GenderNpc, "Gender"},
             { ColumnId_Mana, "Mana" },
             { ColumnId_Fatigue, "Fatigue" },
             { ColumnId_NpcDisposition, "NPC Disposition" },
@@ -324,6 +324,12 @@ namespace CSMWorld
             { ColumnId_Idle6, "Idle 6" },
             { ColumnId_Idle7, "Idle 7" },
             { ColumnId_Idle8, "Idle 8" },
+
+            { ColumnId_RegionWeather, "Weather" },
+            { ColumnId_WeatherName, "Type" },
+            { ColumnId_WeatherChance, "Percent Chance" },
+
+            { ColumnId_Text, "Text" },
 
             { ColumnId_UseValue1, "Use value 1" },
             { ColumnId_UseValue2, "Use value 2" },
@@ -546,16 +552,19 @@ namespace
         "AI Wander", "AI Travel", "AI Follow", "AI Escort", "AI Activate", 0
     };
 
-    static const char *sInfoCondFunc[] =
+    static const char *sBookType[] =
     {
-        " ", "Function", "Global", "Local", "Journal",
-        "Item", "Dead", "Not ID", "Not Faction", "Not Class",
-        "Not Race", "Not Cell", "Not Local", 0
+        "Book", "Scroll", 0
     };
 
-    static const char *sInfoCondComp[] =
+    static const char *sBloodType[] =
     {
-        "!=", "<", "<=", "=", ">", ">=", 0
+        "Default (Red)", "Skeleton Blood (White)", "Metal Blood (Golden)", 0
+    };
+
+    static const char *sEmitterType[] =
+    {
+        "<None>", "Flickering", "Flickering (Slow)", "Pulsing", "Pulsing (Slow)", 0
     };
 
     const char **getEnumNames (CSMWorld::Columns::ColumnId column)
@@ -585,10 +594,11 @@ namespace
             case CSMWorld::Columns::ColumnId_EffectId: return sEffectId;
             case CSMWorld::Columns::ColumnId_PartRefType: return sPartRefType;
             case CSMWorld::Columns::ColumnId_AiPackageType: return sAiPackageType;
-            case CSMWorld::Columns::ColumnId_InfoCondFunc: return sInfoCondFunc;
-            // FIXME: don't have dynamic value enum delegate, use Display_String for now
-            //case CSMWorld::Columns::ColumnId_InfoCond: return sInfoCond;
-            case CSMWorld::Columns::ColumnId_InfoCondComp: return sInfoCondComp;
+            case CSMWorld::Columns::ColumnId_InfoCondFunc: return CSMWorld::ConstInfoSelectWrapper::FunctionEnumStrings;
+            case CSMWorld::Columns::ColumnId_InfoCondComp: return CSMWorld::ConstInfoSelectWrapper::RelationEnumStrings;
+            case CSMWorld::Columns::ColumnId_BookType: return sBookType;
+            case CSMWorld::Columns::ColumnId_BloodType: return sBloodType;
+            case CSMWorld::Columns::ColumnId_EmitterType: return sEmitterType;
 
             default: return 0;
         }

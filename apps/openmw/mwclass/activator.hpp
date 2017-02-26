@@ -24,6 +24,9 @@ namespace MWClass
             virtual bool hasToolTip (const MWWorld::ConstPtr& ptr) const;
             ///< @return true if this object has a tooltip when focused (default implementation: false)
 
+            virtual bool allowTelekinesis(const MWWorld::ConstPtr& ptr) const;
+            ///< Return whether this class of object can be activated with telekinesis
+
             virtual MWGui::ToolTipInfo getToolTipInfo (const MWWorld::ConstPtr& ptr, int count) const;
             ///< @return the content of the tool tip to be displayed. raises exception if the object has no tooltip.
 
@@ -36,6 +39,9 @@ namespace MWClass
             static void registerSelf();
 
             virtual std::string getModel(const MWWorld::ConstPtr &ptr) const;
+
+            virtual bool useAnim() const;
+            ///< Whether or not to use animated variant of model (default false)
     };
 }
 

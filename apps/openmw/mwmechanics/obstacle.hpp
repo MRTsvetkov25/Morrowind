@@ -19,7 +19,7 @@ namespace MWMechanics
     bool proximityToDoor(const MWWorld::Ptr& actor,
                          float minSqr = MIN_DIST_TO_DOOR_SQUARED);
 
-    /// Returns door pointer within range. No guarentee is given as too which one
+    /// Returns door pointer within range. No guarantee is given as to which one
     /** \return Pointer to the door, or NULL if none exists **/
     MWWorld::Ptr getNearbyDoor(const MWWorld::Ptr& actor,
                          float minSqr = MIN_DIST_TO_DOOR_SQUARED);
@@ -33,10 +33,11 @@ namespace MWMechanics
             void clear();
 
             bool isNormalState() const;
+            bool isEvading() const;
 
             // Returns true if there is an obstacle and an evasive action
             // should be taken
-            bool check(const MWWorld::Ptr& actor, float duration);
+            bool check(const MWWorld::Ptr& actor, float duration, float scaleMinimumDistance = 1.0f);
 
             // change direction to try to fix "stuck" actor
             void takeEvasiveAction(MWMechanics::Movement& actorMovement);

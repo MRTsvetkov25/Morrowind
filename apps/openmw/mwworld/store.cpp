@@ -8,6 +8,7 @@
 
 #include <stdexcept>
 #include <sstream>
+#include <iostream>
 
 namespace
 {
@@ -36,6 +37,12 @@ namespace
                 return x->mY < y->mY;
             }
             return x->mX < y->mX;
+        }
+        bool operator()(const ESM::Land *x, const std::pair<int, int>& y) {
+            if (x->mX == y.first) {
+                return x->mY < y.second;
+            }
+            return x->mX < y.first;
         }
     };
 }
@@ -129,15 +136,14 @@ namespace MWWorld
     template<typename T>
     const T *Store<T>::search(const std::string &id) const
     {
-        T item;
-        item.mId = Misc::StringUtils::lowerCase(id);
+        std::string idLower = Misc::StringUtils::lowerCase(id);
 
-        typename Dynamic::const_iterator dit = mDynamic.find(item.mId);
+        typename Dynamic::const_iterator dit = mDynamic.find(idLower);
         if (dit != mDynamic.end()) {
             return &dit->second;
         }
 
-        typename std::map<std::string, T>::const_iterator it = mStatic.find(item.mId);
+        typename std::map<std::string, T>::const_iterator it = mStatic.find(idLower);
 
         if (it != mStatic.end() && Misc::StringUtils::ciEqual(it->second.mId, id)) {
             return &(it->second);
@@ -267,10 +273,9 @@ namespace MWWorld
     template<typename T>
     bool Store<T>::eraseStatic(const std::string &id)
     {
-        T item;
-        item.mId = Misc::StringUtils::lowerCase(id);
+        std::string idLower = Misc::StringUtils::lowerCase(id);
 
-        typename std::map<std::string, T>::iterator it = mStatic.find(item.mId);
+        typename std::map<std::string, T>::iterator it = mStatic.find(idLower);
 
         if (it != mStatic.end() && Misc::StringUtils::ciEqual(it->second.mId, id)) {
             // delete from the static part of mShared
@@ -278,7 +283,7 @@ namespace MWWorld
             typename std::vector<T *>::iterator end = sharedIter + mStatic.size();
 
             while (sharedIter != mShared.end() && sharedIter != end) {
-                if((*sharedIter)->mId == item.mId) {
+                if((*sharedIter)->mId == idLower) {
                     mShared.erase(sharedIter);
                     break;
                 }
@@ -435,22 +440,21 @@ namespace MWWorld
     {
         return iterator(mStatic.end());
     }
-    ESM::Land *Store<ESM::Land>::search(int x, int y) const
+    const ESM::Land *Store<ESM::Land>::search(int x, int y) const
     {
-        ESM::Land land;
-        land.mX = x, land.mY = y;
+        std::pair<int, int> comp(x,y);
 
         std::vector<ESM::Land *>::const_iterator it =
-            std::lower_bound(mStatic.begin(), mStatic.end(), &land, Compare());
+            std::lower_bound(mStatic.begin(), mStatic.end(), comp, Compare());
 
         if (it != mStatic.end() && (*it)->mX == x && (*it)->mY == y) {
-            return const_cast<ESM::Land *>(*it);
+            return *it;
         }
         return 0;
     }
-    ESM::Land *Store<ESM::Land>::find(int x, int y) const
+    const ESM::Land *Store<ESM::Land>::find(int x, int y) const
     {
-        ESM::Land *ptr = search(x, y);
+        const ESM::Land *ptr = search(x, y);
         if (ptr == 0) {
             std::ostringstream msg;
             msg << "Land at (" << x << ", " << y << ") not found";
@@ -515,15 +519,13 @@ namespace MWWorld
             // Add data required to make reference appear in the correct cell.
             // We should not need to test for duplicates, as this part of the code is pre-cell merge.
             cell->mMovedRefs.push_back(cMRef);
+
             // But there may be duplicates here!
-            if (!deleted)
-            {
-                ESM::CellRefTracker::iterator iter = std::find(cellAlt->mLeasedRefs.begin(), cellAlt->mLeasedRefs.end(), ref.mRefNum);
-                if (iter == cellAlt->mLeasedRefs.end())
-                  cellAlt->mLeasedRefs.push_back(ref);
-                else
-                  *iter = ref;
-            }
+            ESM::CellRefTracker::iterator iter = std::find_if(cellAlt->mLeasedRefs.begin(), cellAlt->mLeasedRefs.end(), ESM::CellRefTrackerPredicate(ref.mRefNum));
+            if (iter == cellAlt->mLeasedRefs.end())
+                cellAlt->mLeasedRefs.push_back(std::make_pair(ref, deleted));
+            else
+                *iter = std::make_pair(ref, deleted);
         }
     }
     const ESM::Cell *Store<ESM::Cell>::search(const std::string &id) const
@@ -676,11 +678,17 @@ namespace MWWorld
                 for (ESM::MovedCellRefTracker::const_iterator it = cell.mMovedRefs.begin(); it != cell.mMovedRefs.end(); ++it) {
                     // remove reference from current leased ref tracker and add it to new cell
                     ESM::MovedCellRefTracker::iterator itold = std::find(oldcell->mMovedRefs.begin(), oldcell->mMovedRefs.end(), it->mRefNum);
-                    if (itold != oldcell->mMovedRefs.end()) {
-                        ESM::MovedCellRef target0 = *itold;
-                        ESM::Cell *wipecell = const_cast<ESM::Cell*>(search(target0.mTarget[0], target0.mTarget[1]));
-                        ESM::CellRefTracker::iterator it_lease = std::find(wipecell->mLeasedRefs.begin(), wipecell->mLeasedRefs.end(), it->mRefNum);
-                        wipecell->mLeasedRefs.erase(it_lease);
+                    if (itold != oldcell->mMovedRefs.end())
+                    {
+                        if (it->mTarget[0] != itold->mTarget[0] || it->mTarget[1] != itold->mTarget[1])
+                        {
+                            ESM::Cell *wipecell = const_cast<ESM::Cell*>(search(itold->mTarget[0], itold->mTarget[1]));
+                            ESM::CellRefTracker::iterator it_lease = std::find_if(wipecell->mLeasedRefs.begin(), wipecell->mLeasedRefs.end(), ESM::CellRefTrackerPredicate(it->mRefNum));
+                            if (it_lease != wipecell->mLeasedRefs.end())
+                                wipecell->mLeasedRefs.erase(it_lease);
+                            else
+                                std::cerr << "can't find " << it->mRefNum.mIndex << " " << it->mRefNum.mContentFile  << " in leasedRefs " << std::endl;
+                        }
                         *itold = *it;
                     }
                     else

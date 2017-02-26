@@ -4,7 +4,6 @@
 #include <list>
 
 #include <components/esm/loadnpc.hpp>
-//#include "aistate.hpp"
 
 namespace MWWorld
 {
@@ -39,6 +38,9 @@ namespace MWMechanics
 
             ///Finished with top AIPackage, set for one frame
             bool mDone;
+
+            ///Does this AI sequence repeat (repeating of Wander packages handled separately)
+            bool mRepeat;
 
             ///Copy AiSequence
             void copy (const AiSequence& sequence);
@@ -76,6 +78,9 @@ namespace MWMechanics
 
             /// Return true and assign target if combat package is currently active, return false otherwise
             bool getCombatTarget (MWWorld::Ptr &targetActor) const;
+
+            /// Return true and assign targets for all combat packages, or return false if there are no combat packages
+            bool getCombatTargets(std::vector<MWWorld::Ptr> &targetActors) const;
 
             /// Is there any combat package?
             bool isInCombat () const;

@@ -1,6 +1,6 @@
 #include "visitor.hpp"
 
-#include <osg/Geode>
+#include <osg/MatrixTransform>
 
 #include <osgParticle/ParticleSystem>
 
@@ -9,20 +9,35 @@
 namespace SceneUtil
 {
 
-    void FindByNameVisitor::apply(osg::Group &group)
+    bool FindByNameVisitor::checkGroup(osg::Group &group)
     {
         if (Misc::StringUtils::ciEqual(group.getName(), mNameToFind))
         {
             mFoundNode = &group;
-            return;
+            return true;
         }
-        traverse(group);
+        return false;
     }
 
-    void DisableFreezeOnCullVisitor::apply(osg::Geode &geode)
+    void FindByNameVisitor::apply(osg::Group &group)
     {
-        for (unsigned int i=0; i<geode.getNumDrawables(); ++i)
-            apply(*geode.getDrawable(i));
+        if (!checkGroup(group))
+            traverse(group);
+    }
+
+    void FindByNameVisitor::apply(osg::MatrixTransform &node)
+    {
+        if (!checkGroup(node))
+            traverse(node);
+    }
+
+    void FindByNameVisitor::apply(osg::Geometry&)
+    {
+    }
+
+    void DisableFreezeOnCullVisitor::apply(osg::MatrixTransform &node)
+    {
+        traverse(node);
     }
 
     void DisableFreezeOnCullVisitor::apply(osg::Drawable& drw)

@@ -38,7 +38,6 @@ namespace MWClass
     {
         if(!model.empty())
             physics.addObject(ptr, model);
-        MWBase::Environment::get().getMechanicsManager()->add(ptr);
     }
 
     std::string Activator::getModel(const MWWorld::ConstPtr &ptr) const
@@ -50,6 +49,11 @@ namespace MWClass
             return "meshes\\" + model;
         }
         return "";
+    }
+
+    bool Activator::useAnim() const
+    {
+        return true;
     }
 
     std::string Activator::getName (const MWWorld::ConstPtr& ptr) const
@@ -79,6 +83,10 @@ namespace MWClass
         const MWWorld::LiveCellRef<ESM::Activator> *ref = ptr.get<ESM::Activator>();
 
         return (ref->mBase->mName != "");
+    }
+
+    bool Activator::allowTelekinesis(const MWWorld::ConstPtr &ptr) const {
+        return false;
     }
 
     MWGui::ToolTipInfo Activator::getToolTipInfo (const MWWorld::ConstPtr& ptr, int count) const

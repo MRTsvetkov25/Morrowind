@@ -99,6 +99,7 @@ void CSMTools::MergeReferencesStage::perform (int stage, CSMDoc::Messages& messa
 
         ref.mRefNum.mIndex = mIndex[Misc::StringUtils::lowerCase (ref.mCell)]++;
         ref.mRefNum.mContentFile = 0;
+        ref.mNew = false;
 
         CSMWorld::Record<CSMWorld::CellRef> newRecord (
             CSMWorld::RecordBase::State_ModifiedOnly, 0, &ref);
@@ -128,7 +129,7 @@ void CSMTools::ListLandTexturesMergeStage::perform (int stage, CSMDoc::Messages&
 
         // make sure record is loaded
         land.loadData (ESM::Land::DATA_VHGT | ESM::Land::DATA_VNML |
-            ESM::Land::DATA_VCLR | ESM::Land::DATA_VTEX | ESM::Land::DATA_WNAM);
+            ESM::Land::DATA_VCLR | ESM::Land::DATA_VTEX);
 
         if (const ESM::Land::LandData *data = land.getLandData (ESM::Land::DATA_VTEX))
         {
@@ -183,7 +184,7 @@ void CSMTools::MergeLandTexturesStage::perform (int stage, CSMDoc::Messages& mes
             CSMWorld::LandTexture texture =
                 mState.mSource.getData().getLandTextures().getRecord (index).get();
 
-            std::ostringstream stream;
+            stream.clear();
             stream << mNext->second-1 << "_0";
 
             texture.mIndex = mNext->second-1;
@@ -220,7 +221,7 @@ void CSMTools::MergeLandStage::perform (int stage, CSMDoc::Messages& messages)
         const CSMWorld::Land& land = record.get();
 
         land.loadData (ESM::Land::DATA_VCLR | ESM::Land::DATA_VHGT | ESM::Land::DATA_VNML |
-            ESM::Land::DATA_VTEX | ESM::Land::DATA_WNAM);
+            ESM::Land::DATA_VTEX);
 
         CSMWorld::Land newLand (land);
 

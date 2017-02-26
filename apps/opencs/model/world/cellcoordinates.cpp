@@ -1,11 +1,16 @@
 #include "cellcoordinates.hpp"
 
+#include <cmath>
+
 #include <ostream>
 #include <sstream>
 
 CSMWorld::CellCoordinates::CellCoordinates() : mX (0), mY (0) {}
 
 CSMWorld::CellCoordinates::CellCoordinates (int x, int y) : mX (x), mY (y) {}
+
+CSMWorld::CellCoordinates::CellCoordinates (const std::pair<int, int>& coordinates)
+: mX (coordinates.first), mY (coordinates.second) {}
 
 int CSMWorld::CellCoordinates::getX() const
 {
@@ -32,11 +37,16 @@ std::string CSMWorld::CellCoordinates::getId (const std::string& worldspace) con
     return stream.str();
 }
 
+bool CSMWorld::CellCoordinates::isExteriorCell (const std::string& id)
+{
+    return (!id.empty() && id[0]=='#');
+}
+
 std::pair<CSMWorld::CellCoordinates, bool> CSMWorld::CellCoordinates::fromId (
     const std::string& id)
 {
     // no worldspace for now, needs to be changed for 1.1
-    if (!id.empty() && id[0]=='#')
+    if (isExteriorCell(id))
     {
         int x, y;
         char ignore;
@@ -47,6 +57,13 @@ std::pair<CSMWorld::CellCoordinates, bool> CSMWorld::CellCoordinates::fromId (
     }
 
     return std::make_pair (CellCoordinates(), false);
+}
+
+std::pair<int, int> CSMWorld::CellCoordinates::coordinatesToCellIndex (float x, float y)
+{
+    const int cellSize = 8192;
+
+    return std::make_pair (std::floor (x/cellSize), std::floor (y/cellSize));
 }
 
 bool CSMWorld::operator== (const CellCoordinates& left, const CellCoordinates& right)

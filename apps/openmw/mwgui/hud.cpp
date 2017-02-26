@@ -1,5 +1,11 @@
 #include "hud.hpp"
 
+#include "../mwmp/Main.hpp"
+#include "../mwmp/Networking.hpp"
+#include "../mwmp/WorldEvent.hpp"
+#include "../mwmp/LocalPlayer.hpp"
+#include "../mwworld/cellstore.hpp"
+
 #include <MyGUI_RenderManager.h>
 #include <MyGUI_ProgressBar.h>
 #include <MyGUI_Button.h>
@@ -8,6 +14,7 @@
 #include <MyGUI_ScrollView.h>
 
 #include <components/settings/settings.hpp>
+#include <components/openmw-mp/Log.hpp>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/windowmanager.hpp"
@@ -50,6 +57,43 @@ namespace MWGui
                 dropped = world->dropObjectOnGround(world->getPlayerPtr(), item.mBase, count);
             if (setNewOwner)
                 dropped.getCellRef().setOwner("");
+
+            // Major change done by tes3mp:
+            // When the object is dropped, generate a new RefNum index for it that follows the last one
+            // in the cell, so that packets can be sent and received specifically about it, instead
+            // of giving it a RefNum index of 0 as in regular OpenMW
+            MWWorld::CellStore *cellStore = dropped.getCell();
+            cellStore->setLastRefNumIndex(cellStore->getLastRefNumIndex() + 1);
+            dropped.getCellRef().setRefNumIndex(cellStore->getLastRefNumIndex());
+
+            // Added by tes3mp
+            mwmp::WorldEvent *worldEvent = mwmp::Main::get().getNetworking()->resetWorldEvent();
+            worldEvent->cell = *dropped.getCell()->getCell();
+
+            mwmp::WorldObject worldObject;
+            worldObject.refId = dropped.getCellRef().getRefId();
+            worldObject.refNumIndex = dropped.getCellRef().getRefNum().mIndex;
+            worldObject.charge = dropped.getCellRef().getCharge();
+
+            // Make sure we send the RefData position instead of the CellRef one, because that's what
+            // we actually see on this client
+            worldObject.pos = dropped.getRefData().getPosition();
+
+            // We have to get the count from the dropped object because it gets changed
+            // automatically for stacks of gold
+            worldObject.count = dropped.getRefData().getCount();
+
+            // Get the real count of gold in a stack
+            worldObject.goldValue = dropped.getCellRef().getGoldValue();
+
+            worldEvent->addObject(worldObject);
+
+            mwmp::Main::get().getNetworking()->getWorldPacket(ID_OBJECT_PLACE)->Send(worldEvent);
+
+            LOG_MESSAGE_SIMPLE(Log::LOG_VERBOSE, "Sending ID_OBJECT_PLACE\n- cellRef: %s, %i\n- count: %i",
+                worldObject.refId.c_str(),
+                worldObject.refNumIndex,
+                worldObject.count);
 
             return dropped;
         }
@@ -243,6 +287,11 @@ namespace MWGui
 
             WorldItemModel drop (mouseX, mouseY);
             mDragAndDrop->drop(&drop, NULL);
+
+            // Added by tes3mp
+            //
+            // LocalPlayer's inventory has changed, so send a packet with it
+            mwmp::Main::get().getLocalPlayer()->sendInventory();
 
             MWBase::Environment::get().getWindowManager()->changePointer("arrow");
         }

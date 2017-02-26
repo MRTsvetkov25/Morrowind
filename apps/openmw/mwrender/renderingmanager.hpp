@@ -63,7 +63,7 @@ namespace MWRender
     class RenderingManager : public MWRender::RenderingInterface
     {
     public:
-        RenderingManager(osgViewer::Viewer* viewer, osg::ref_ptr<osg::Group> rootNode, Resource::ResourceSystem* resourceSystem,
+        RenderingManager(osgViewer::Viewer* viewer, osg::ref_ptr<osg::Group> rootNode, Resource::ResourceSystem* resourceSystem, SceneUtil::WorkQueue* workQueue,
                          const Fallback::Map* fallback, const std::string& resourcePath);
         ~RenderingManager();
 
@@ -91,7 +91,7 @@ namespace MWRender
         void skySetMoonColour(bool red);
 
         void setSunDirection(const osg::Vec3f& direction);
-        void setSunColour(const osg::Vec4f& colour);
+        void setSunColour(const osg::Vec4f& diffuse, const osg::Vec4f& specular);
 
         void configureAmbient(const ESM::Cell* cell);
         void configureFog(const ESM::Cell* cell);
@@ -120,6 +120,7 @@ namespace MWRender
             osg::Vec3f mHitNormalWorld;
             osg::Vec3f mHitPointWorld;
             MWWorld::Ptr mHitObject;
+            float mRatio;
         };
 
         RayResult castRay(const osg::Vec3f& origin, const osg::Vec3f& dest, bool ignorePlayer, bool ignoreActors=false);
@@ -137,9 +138,7 @@ namespace MWRender
 
         SkyManager* getSkyManager();
 
-        osg::Vec3f getEyePos();
-
-        void spawnEffect(const std::string &model, const std::string &texture, const osg::Vec3f &worldPosition, float scale = 1.f);
+        void spawnEffect(const std::string &model, const std::string &texture, const osg::Vec3f &worldPosition, float scale = 1.f, bool isMagicVFX = true);
 
         /// Clear all savegame-specific data
         void clear();
@@ -189,15 +188,19 @@ namespace MWRender
         /// reset a previous overrideFieldOfView() call, i.e. revert to field of view specified in the settings file.
         void resetFieldOfView();
 
+        void exportSceneGraph(const MWWorld::Ptr& ptr, const std::string& filename, const std::string& format);
+
     private:
         void updateProjectionMatrix();
         void updateTextureFiltering();
         void updateAmbient();
         void setFogColor(const osg::Vec4f& color);
 
+        void reportStats();
+
         osg::ref_ptr<osgViewer::Viewer> mViewer;
         osg::ref_ptr<osg::Group> mRootNode;
-        osg::ref_ptr<osg::Group> mLightRoot;
+        osg::ref_ptr<osg::Group> mSceneRoot;
         Resource::ResourceSystem* mResourceSystem;
 
         osg::ref_ptr<SceneUtil::WorkQueue> mWorkQueue;
@@ -211,7 +214,7 @@ namespace MWRender
         std::auto_ptr<Terrain::World> mTerrain;
         std::auto_ptr<SkyManager> mSky;
         std::auto_ptr<EffectManager> mEffectManager;
-        std::auto_ptr<NpcAnimation> mPlayerAnimation;
+        osg::ref_ptr<NpcAnimation> mPlayerAnimation;
         osg::ref_ptr<SceneUtil::PositionAttitudeTransform> mPlayerNode;
         std::auto_ptr<Camera> mCamera;
         osg::Vec3f mCurrentCameraPos;

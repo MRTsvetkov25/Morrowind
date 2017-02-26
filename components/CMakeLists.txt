@@ -20,11 +20,13 @@ else (GIT_CHECKOUT)
     configure_file(${VERSION_IN_FILE} ${VERSION_FILE})
 endif (GIT_CHECKOUT)
 
-if (OPENGL_ES)
-    find_package(OpenGLES REQUIRED)
-else()    
-    find_package(OpenGL REQUIRED)
-endif()
+if(BUILD_OPENMW OR BUILD_OPENCS)
+    if (OPENGL_ES)
+        find_package(OpenGLES REQUIRED)
+    else()
+        find_package(OpenGL REQUIRED)
+    endif()
+endif(BUILD_OPENMW OR BUILD_OPENCS)
 
 # source files
 
@@ -39,14 +41,19 @@ add_component_dir (bsa
 add_component_dir (vfs
     manager archive bsaarchive filesystemarchive registerarchives
     )
-
+	
+IF(BUILD_OPENMW OR BUILD_OPENCS)
 add_component_dir (resource
-    scenemanager keyframemanager imagemanager bulletshapemanager bulletshape niffilemanager objectcache multiobjectcache resourcesystem resourcemanager
+    scenemanager keyframemanager imagemanager bulletshapemanager bulletshape niffilemanager objectcache multiobjectcache resourcesystem resourcemanager stats
+    )
+
+add_component_dir (shader
+    shadermanager shadervisitor
     )
 
 add_component_dir (sceneutil
     clone attach visitor util statesetupdater controller skeleton riggeometry lightcontroller
-    lightmanager lightutil positionattitudetransform workqueue unrefqueue
+    lightmanager lightutil positionattitudetransform workqueue unrefqueue pathgridutil waterutil writescene serialize optimizer
     )
 
 add_component_dir (nif
@@ -60,6 +67,7 @@ add_component_dir (nifosg
 add_component_dir (nifbullet
     bulletnifloader
     )
+ENDIF(BUILD_OPENMW OR BUILD_OPENCS)
 
 add_component_dir (to_utf8
     to_utf8
@@ -73,7 +81,7 @@ add_component_dir (esm
     loadweap records aipackage effectlist spelllist variant variantimp loadtes3 cellref filter
     savedgame journalentry queststate locals globalscript player objectstate cellid cellstate globalmap inventorystate containerstate npcstate creaturestate dialoguestate statstate
     npcstats creaturestats weatherstate quickkeys fogstate spellstate activespells creaturelevliststate doorstate projectilestate debugprofile
-    aisequence magiceffects util custommarkerstate stolenitems transport
+    aisequence magiceffects util custommarkerstate stolenitems transport animationstate controlsstate
     )
 
 add_component_dir (esmterrain
@@ -81,7 +89,7 @@ add_component_dir (esmterrain
     )
 
 add_component_dir (misc
-    utf8stream stringops resourcehelpers rng
+    utf8stream stringops resourcehelpers rng messageformatparser
     )
 
 IF(NOT WIN32 AND NOT APPLE)
@@ -89,7 +97,7 @@ IF(NOT WIN32 AND NOT APPLE)
     add_definitions(-DGLOBAL_CONFIG_PATH="${GLOBAL_CONFIG_PATH}")
 ENDIF()
 add_component_dir (files
-    linuxpath androidpath windowspath macospath fixedpath multidircollection collections configurationmanager
+    linuxpath androidpath windowspath macospath fixedpath multidircollection collections configurationmanager escape
     lowlevelfile constrainedfilestream memorystream
     )
 
@@ -116,7 +124,8 @@ add_component_dir (terrain
 add_component_dir (loadinglistener
     loadinglistener
     )
-
+	
+IF(BUILD_OPENMW OR BUILD_OPENCS)
 add_component_dir (myguiplatform
     myguirendermanager myguidatamanager myguiplatform myguitexture myguiloglistener additivelayer scalinglayer
     )
@@ -132,18 +141,47 @@ add_component_dir (fontloader
 add_component_dir (sdlutil
     sdlgraphicswindow imagetosurface sdlinputwrapper sdlvideowrapper OISCompat events sdlcursormanager
     )
+ENDIF(BUILD_OPENMW OR BUILD_OPENCS)
 
 add_component_dir (version
     version
     )
 
+add_component_dir (openmw-mp
+        Log
+        Controllers/PlayerPacketController Controllers/WorldPacketController
+        Packets/BasePacket Packets/Player/PlayerPacket Packets/World/WorldPacket
+
+        Packets/Player/PacketHandshake Packets/Player/PacketChatMessage
+
+        Packets/Player/PacketPlayerBaseInfo Packets/Player/PacketPlayerPosition Packets/Player/PacketPlayerEquipment
+        Packets/Player/PacketPlayerAttack Packets/Player/PacketPlayerDynamicStats Packets/Player/PacketPlayerDrawState
+        Packets/Player/PacketPlayerCharGen Packets/Player/PacketPlayerAttribute Packets/Player/PacketPlayerSkill
+        Packets/Player/PacketPlayerLevel Packets/Player/PacketPlayerClass Packets/Player/PacketPlayerInventory
+        Packets/Player/PacketPlayerSpellbook Packets/Player/PacketPlayerJournal Packets/Player/PacketPlayerActiveSkills
+        Packets/Player/PacketPlayerCellChange Packets/Player/PacketPlayerCellState
+
+        Packets/Player/PacketGUIBoxes Packets/Player/PacketTime
+
+        Packets/World/PacketObjectDelete Packets/World/PacketObjectPlace Packets/World/PacketObjectScale
+        Packets/World/PacketObjectLock Packets/World/PacketObjectUnlock Packets/World/PacketObjectMove
+        Packets/World/PacketObjectRotate Packets/World/PacketObjectAnimPlay
+
+        Packets/World/PacketContainer Packets/World/PacketDoorState Packets/World/PacketMusicPlay
+        Packets/World/PacketVideoPlay
+
+        Packets/World/PacketScriptLocalShort Packets/World/PacketScriptLocalFloat Packets/World/PacketScriptMemberShort
+        Packets/World/PacketScriptGlobalShort)
+
 add_component_dir (fallback
     fallback validate
     )
 
+
 set (ESM_UI ${CMAKE_SOURCE_DIR}/files/ui/contentselector.ui
     )
 
+IF(BUILD_OPENMW OR BUILD_OPENCS)
 if (USE_QT)
     add_component_qt_dir (contentselector
         model/modelitem model/esmfile
@@ -170,6 +208,7 @@ if (USE_QT)
         QT5_WRAP_CPP(MOC_SRCS ${COMPONENT_MOC_FILES})
     endif()
 endif()
+ENDIF(BUILD_OPENMW OR BUILD_OPENCS)
 
 if (CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     if("${CMAKE_SYSTEM_PROCESSOR}" STREQUAL "x86_64" AND NOT APPLE)
@@ -177,17 +216,19 @@ if (CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     endif()
 endif ()
 
-include_directories(${BULLET_INCLUDE_DIRS} ${CMAKE_CURRENT_BINARY_DIR})
+include_directories(${Bullet_INCLUDE_DIRS} ${CMAKE_CURRENT_BINARY_DIR})
 
 add_library(components STATIC ${COMPONENT_FILES} ${MOC_SRCS} ${ESM_UI_HDR})
 
-if (OPENGL_ES)
-    set(GL_LIB ${OPENGLES_gl_LIBRARY})
-else()
-    set(GL_LIB ${OPENGL_gl_LIBRARY})
-endif()
+if(BUILD_OPENMW OR BUILD_OPENCS)
+    if (OPENGL_ES)
+        set(GL_LIB ${OPENGLES_gl_LIBRARY})
+    else()
+        set(GL_LIB ${OPENGL_gl_LIBRARY})
+    endif()
+endif(BUILD_OPENMW OR BUILD_OPENCS)
 
-target_link_libraries(components 
+target_link_libraries(components
     ${Boost_SYSTEM_LIBRARY}
     ${Boost_FILESYSTEM_LIBRARY}
     ${Boost_THREAD_LIBRARY}
@@ -198,14 +239,15 @@ target_link_libraries(components
     ${OSGUTIL_LIBRARIES}
     ${OSGDB_LIBRARIES}
     ${OSGVIEWER_LIBRARIES}
+    ${OSGTEXT_LIBRARIES}
     ${OSGGA_LIBRARIES}
     ${OSGFX_LIBRARIES}
     ${OSGANIMATION_LIBRARIES}
-    ${BULLET_LIBRARIES}
-    ${SDL2_LIBRARY}
+    ${Bullet_LIBRARIES}
+    ${SDL2_LIBRARIES}
     # For MyGUI platform
     ${GL_LIB}
-    ${MYGUI_LIBRARIES}
+    ${MyGUI_LIBRARIES}
     )
 
 if (WIN32)

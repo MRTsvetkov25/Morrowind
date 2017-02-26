@@ -134,6 +134,9 @@ namespace MWClass
             data->mCreatureStats.setAiSetting (MWMechanics::CreatureStats::AI_Flee, ref->mBase->mAiData.mFlee);
             data->mCreatureStats.setAiSetting (MWMechanics::CreatureStats::AI_Alarm, ref->mBase->mAiData.mAlarm);
 
+            if (data->mCreatureStats.isDead())
+                data->mCreatureStats.setDeathAnimationFinished(true);
+
             // spells
             for (std::vector<std::string>::const_iterator iter (ref->mBase->mSpells.mList.begin());
                 iter!=ref->mBase->mSpells.mList.end(); ++iter)
@@ -161,7 +164,7 @@ namespace MWClass
             getContainerStore(ptr).fill(ref->mBase->mInventory, ptr.getCellRef().getRefId());
 
             if (hasInventory)
-                getInventoryStore(ptr).autoEquip(ptr);   
+                getInventoryStore(ptr).autoEquipShield(ptr);
         }
     }
 
@@ -242,14 +245,16 @@ namespace MWClass
 
         MWMechanics::applyFatigueLoss(ptr, weapon, attackStrength);
 
-        // TODO: where is the distance defined?
-        float dist = 200.f;
+        float dist = gmst.find("fCombatDistance")->getFloat();
         if (!weapon.isEmpty())
-        {
-            const float fCombatDistance = gmst.find("fCombatDistance")->getFloat();
-            dist = fCombatDistance * weapon.get<ESM::Weapon>()->mBase->mData.mReach;
-        }
-        std::pair<MWWorld::Ptr, osg::Vec3f> result = MWBase::Environment::get().getWorld()->getHitContact(ptr, dist);
+            dist *= weapon.get<ESM::Weapon>()->mBase->mData.mReach;
+
+        // For AI actors, get combat targets to use in the ray cast. Only those targets will return a positive hit result.
+        std::vector<MWWorld::Ptr> targetActors;
+        if (!ptr.isEmpty() && ptr.getClass().isActor() && ptr != MWMechanics::getPlayer())
+            ptr.getClass().getCreatureStats(ptr).getAiSequence().getCombatTargets(targetActors);
+
+        std::pair<MWWorld::Ptr, osg::Vec3f> result = MWBase::Environment::get().getWorld()->getHitContact(ptr, dist, targetActors);
         if (result.first.isEmpty())
             return; // Didn't hit anything
 
@@ -264,7 +269,7 @@ namespace MWClass
 
         if(Misc::Rng::roll0to99() >= hitchance)
         {
-            victim.getClass().onHit(victim, 0.0f, false, MWWorld::Ptr(), ptr, false);
+            victim.getClass().onHit(victim, 0.0f, false, MWWorld::Ptr(), ptr, osg::Vec3f(), false);
             MWMechanics::reduceWeaponCondition(0.f, false, weapon, ptr);
             return;
         }
@@ -306,18 +311,7 @@ namespace MWClass
             }
 
             // Apply "On hit" enchanted weapons
-            std::string enchantmentName = !weapon.isEmpty() ? weapon.getClass().getEnchantment(weapon) : "";
-            if (!enchantmentName.empty())
-            {
-                const ESM::Enchantment* enchantment = MWBase::Environment::get().getWorld()->getStore().get<ESM::Enchantment>().find(
-                            enchantmentName);
-                if (enchantment->mData.mType == ESM::Enchantment::WhenStrikes)
-                {
-                    MWMechanics::CastSpell cast(ptr, victim);
-                    cast.mHitPosition = hitPosition;
-                    cast.cast(weapon);
-                }
-            }
+            MWMechanics::applyOnStrikeEnchantment(ptr, victim, weapon, hitPosition);
         }
         else if (isBipedal(ptr))
         {
@@ -329,34 +323,47 @@ namespace MWClass
         if (MWMechanics::blockMeleeAttack(ptr, victim, weapon, damage, attackStrength))
             damage = 0;
 
-        if (damage > 0)
-            MWBase::Environment::get().getWorld()->spawnBloodEffect(victim, hitPosition);
-
         MWMechanics::diseaseContact(victim, ptr);
 
-        victim.getClass().onHit(victim, damage, healthdmg, weapon, ptr, true);
+        victim.getClass().onHit(victim, damage, healthdmg, weapon, ptr, hitPosition, true);
     }
 
-    void Creature::onHit(const MWWorld::Ptr &ptr, float damage, bool ishealth, const MWWorld::Ptr &object, const MWWorld::Ptr &attacker, bool successful) const
+    void Creature::onHit(const MWWorld::Ptr &ptr, float damage, bool ishealth, const MWWorld::Ptr &object, const MWWorld::Ptr &attacker, const osg::Vec3f &hitPosition, bool successful) const
     {
-        // NOTE: 'object' and/or 'attacker' may be empty.
+        MWMechanics::CreatureStats& stats = ptr.getClass().getCreatureStats(ptr);
 
-        if (!attacker.isEmpty() && !ptr.getClass().getCreatureStats(ptr).getAiSequence().isInCombat(attacker))
-            getCreatureStats(ptr).setAttacked(true);
+        // NOTE: 'object' and/or 'attacker' may be empty.        
+        if (!attacker.isEmpty() && attacker.getClass().isActor() && !stats.getAiSequence().isInCombat(attacker))
+            stats.setAttacked(true);
 
         // Self defense
         bool setOnPcHitMe = true; // Note OnPcHitMe is not set for friendly hits.
         
         // No retaliation for totally static creatures (they have no movement or attacks anyway)
         if (isMobile(ptr) && !attacker.isEmpty())
-        {
             setOnPcHitMe = MWBase::Environment::get().getMechanicsManager()->actorAttacked(ptr, attacker);
+
+        // Attacker and target store each other as hitattemptactor if they have no one stored yet
+        if (!attacker.isEmpty() && attacker.getClass().isActor() && !ptr.isEmpty() && ptr.getClass().isActor())
+        {
+            MWMechanics::CreatureStats& statsAttacker = attacker.getClass().getCreatureStats(attacker);
+            // First handle the attacked actor
+            if ((stats.getHitAttemptActorId() == -1)
+                && (statsAttacker.getAiSequence().isInCombat(ptr)
+                    || attacker == MWMechanics::getPlayer()))
+                stats.setHitAttemptActorId(statsAttacker.getActorId());
+
+            // Next handle the attacking actor
+            if ((statsAttacker.getHitAttemptActorId() == -1)
+                && (statsAttacker.getAiSequence().isInCombat(ptr)
+                    || attacker == MWMechanics::getPlayer()))
+                statsAttacker.setHitAttemptActorId(stats.getActorId());
         }
 
-        if(!object.isEmpty())
-            getCreatureStats(ptr).setLastHitAttemptObject(object.getCellRef().getRefId());
+        if (!object.isEmpty())
+            stats.setLastHitAttemptObject(object.getCellRef().getRefId());
 
-        if(setOnPcHitMe && !attacker.isEmpty() && attacker == MWMechanics::getPlayer())
+        if (setOnPcHitMe && !attacker.isEmpty() && attacker == MWMechanics::getPlayer())
         {
             const std::string &script = ptr.get<ESM::Creature>()->mBase->mScript;
             /* Set the OnPCHitMe script variable. The script is responsible for clearing it. */
@@ -364,15 +371,15 @@ namespace MWClass
                 ptr.getRefData().getLocals().setVarByInt(script, "onpchitme", 1);
         }
 
-        if(!successful)
+        if (!successful)
         {
             // Missed
             MWBase::Environment::get().getSoundManager()->playSound3D(ptr, "miss", 1.0f, 1.0f);
             return;
         }
 
-        if(!object.isEmpty())
-            getCreatureStats(ptr).setLastHitObject(object.getCellRef().getRefId());
+        if (!object.isEmpty())
+            stats.setLastHitObject(object.getCellRef().getRefId());
 
         if (damage > 0.0f && !object.isEmpty())
             MWMechanics::resistNormalWeapon(ptr, attacker, object, damage);
@@ -385,16 +392,13 @@ namespace MWClass
             if (!attacker.isEmpty())
             {
                 // Check for knockdown
-                float agilityTerm = getCreatureStats(ptr).getAttribute(ESM::Attribute::Agility).getModified() * getGmst().fKnockDownMult->getFloat();
-                float knockdownTerm = getCreatureStats(ptr).getAttribute(ESM::Attribute::Agility).getModified()
+                float agilityTerm = stats.getAttribute(ESM::Attribute::Agility).getModified() * getGmst().fKnockDownMult->getFloat();
+                float knockdownTerm = stats.getAttribute(ESM::Attribute::Agility).getModified()
                         * getGmst().iKnockDownOddsMult->getInt() * 0.01f + getGmst().iKnockDownOddsBase->getInt();
                 if (ishealth && agilityTerm <= damage && knockdownTerm <= Misc::Rng::roll0to99())
-                {
-                    getCreatureStats(ptr).setKnockedDown(true);
-
-                }
+                    stats.setKnockedDown(true);
                 else
-                    getCreatureStats(ptr).setHitRecovery(true); // Is this supposed to always occur?
+                    stats.setHitRecovery(true); // Is this supposed to always occur?
             }
 
             damage = std::max(1.f, damage);
@@ -402,19 +406,22 @@ namespace MWClass
             if(ishealth)
             {
                 if (!attacker.isEmpty())
+                {
                     damage = scaleDamage(damage, attacker, ptr);
+                    MWBase::Environment::get().getWorld()->spawnBloodEffect(ptr, hitPosition);
+                }
 
                 MWBase::Environment::get().getSoundManager()->playSound3D(ptr, "Health Damage", 1.0f, 1.0f);
 
-                MWMechanics::DynamicStat<float> health(getCreatureStats(ptr).getHealth());
+                MWMechanics::DynamicStat<float> health(stats.getHealth());
                 health.setCurrent(health.getCurrent() - damage);
-                getCreatureStats(ptr).setHealth(health);
+                stats.setHealth(health);
             }
             else
             {
-                MWMechanics::DynamicStat<float> fatigue(getCreatureStats(ptr).getFatigue());
+                MWMechanics::DynamicStat<float> fatigue(stats.getFatigue());
                 fatigue.setCurrent(fatigue.getCurrent() - damage, true);
-                getCreatureStats(ptr).setFatigue(fatigue);
+                stats.setFatigue(fatigue);
             }
         }
     }
@@ -770,20 +777,31 @@ namespace MWClass
 
     void Creature::respawn(const MWWorld::Ptr &ptr) const
     {
-        if (isFlagBitSet(ptr, ESM::Creature::Respawn))
+        const MWMechanics::CreatureStats& creatureStats = ptr.getClass().getCreatureStats(ptr);
+        if (ptr.getRefData().getCount() > 0 && !creatureStats.isDead())
+            return;
+
+        const MWWorld::Store<ESM::GameSetting>& gmst = MWBase::Environment::get().getWorld()->getStore().get<ESM::GameSetting>();
+        static const float fCorpseRespawnDelay = gmst.find("fCorpseRespawnDelay")->getFloat();
+        static const float fCorpseClearDelay = gmst.find("fCorpseClearDelay")->getFloat();
+
+        float delay = ptr.getRefData().getCount() == 0 ? fCorpseClearDelay : std::min(fCorpseRespawnDelay, fCorpseClearDelay);
+
+        if (isFlagBitSet(ptr, ESM::Creature::Respawn)
+                && creatureStats.getTimeOfDeath() + delay <= MWBase::Environment::get().getWorld()->getTimeStamp())
         {
-            // Note we do not respawn moved references in the cell they were moved to. Instead they are respawned in the original cell.
-            // This also means we cannot respawn dynamically placed references with no content file connection.
             if (ptr.getCellRef().hasContentFile())
             {
                 if (ptr.getRefData().getCount() == 0)
                     ptr.getRefData().setCount(1);
 
-                // Reset to original position
-                ptr.getRefData().setPosition(ptr.getCellRef().getPosition());
-
                 MWBase::Environment::get().getWorld()->removeContainerScripts(ptr);
                 ptr.getRefData().setCustomData(NULL);
+
+                // Reset to original position
+                MWBase::Environment::get().getWorld()->moveObject(ptr, ptr.getCellRef().getPosition().pos[0],
+                        ptr.getCellRef().getPosition().pos[1],
+                        ptr.getCellRef().getPosition().pos[2]);
             }
         }
     }

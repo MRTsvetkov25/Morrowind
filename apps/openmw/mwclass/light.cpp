@@ -51,8 +51,11 @@ namespace MWClass
             MWBase::Environment::get().getSoundManager()->playSound3D(ptr, ref->mBase->mSound, 1.0, 1.0,
                                                                       MWBase::SoundManager::Play_TypeSfx,
                                                                       MWBase::SoundManager::Play_Loop);
+    }
 
-        MWBase::Environment::get().getMechanicsManager()->add(ptr);
+    bool Light::useAnim() const
+    {
+        return true;
     }
 
     std::string Light::getModel(const MWWorld::ConstPtr &ptr) const
@@ -159,11 +162,9 @@ namespace MWClass
 
         if (Settings::Manager::getBool("show effect duration","Game"))
             text += "\n#{sDuration}: " + MWGui::ToolTips::toString(ptr.getClass().getRemainingUsageTime(ptr));
-        if (ref->mBase->mData.mWeight != 0)
-        {
-            text += "\n#{sWeight}: " + MWGui::ToolTips::toString(ref->mBase->mData.mWeight);
-            text += MWGui::ToolTips::getValueString(ref->mBase->mData.mValue, "#{sValue}");
-        }
+
+        text += MWGui::ToolTips::getWeightString(ref->mBase->mData.mWeight, "#{sWeight}");
+        text += MWGui::ToolTips::getValueString(ref->mBase->mData.mValue, "#{sValue}");
 
         if (MWBase::Environment::get().getWindowManager()->getFullHelp()) {
             text += MWGui::ToolTips::getCellRefString(ptr.getCellRef());
@@ -173,6 +174,16 @@ namespace MWClass
         info.text = text;
 
         return info;
+    }
+
+    bool Light::showsInInventory (const MWWorld::ConstPtr& ptr) const
+    {
+        const ESM::Light* light = ptr.get<ESM::Light>()->mBase;
+
+        if (!(light->mData.mFlags & ESM::Light::Carry))
+            return false;
+
+        return Class::showsInInventory(ptr);
     }
 
     boost::shared_ptr<MWWorld::Action> Light::use (const MWWorld::Ptr& ptr) const

@@ -3,10 +3,15 @@
 #include <string>
 #include <iostream>
 #include <algorithm>
+#include <ctype.h>
+
+#include <components/files/escape.hpp>
 
 #include <boost/bind.hpp>
 #include <boost/algorithm/string/erase.hpp>
+#include <boost/algorithm/string/replace.hpp>
 #include <boost/filesystem/fstream.hpp>
+#include <boost/iostreams/filtering_stream.hpp>
 
 /**
  * \namespace Files
@@ -22,7 +27,6 @@ static const char* const applicationName = "OpenMW";
 static const char* const applicationName = "openmw";
 #endif
 
-const char* const mwToken = "?mw?";
 const char* const localToken = "?local?";
 const char* const userDataToken = "?userdata?";
 const char* const globalToken = "?global?";
@@ -45,7 +49,6 @@ ConfigurationManager::~ConfigurationManager()
 
 void ConfigurationManager::setupTokensMapping()
 {
-    mTokensMapping.insert(std::make_pair(mwToken, &FixedPath<>::getInstallPath));
     mTokensMapping.insert(std::make_pair(localToken, &FixedPath<>::getLocalPath));
     mTokensMapping.insert(std::make_pair(userDataToken, &FixedPath<>::getUserDataPath));
     mTokensMapping.insert(std::make_pair(globalToken, &FixedPath<>::getGlobalDataPath));
@@ -141,8 +144,11 @@ bool ConfigurationManager::loadConfig(const boost::filesystem::path& path,
         if (!mSilent)
             std::cout << "Loading config file: " << cfgFile.string() << "... ";
 
-        boost::filesystem::ifstream configFileStream(cfgFile);
-        if (configFileStream.is_open())
+        boost::filesystem::ifstream configFileStreamUnfiltered(cfgFile);
+        boost::iostreams::filtering_istream configFileStream;
+        configFileStream.push(escape_hash_filter());
+        configFileStream.push(configFileStreamUnfiltered);
+        if (configFileStreamUnfiltered.is_open())
         {
             boost::program_options::store(boost::program_options::parse_config_file(
                 configFileStream, description, true), variables);

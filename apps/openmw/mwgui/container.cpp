@@ -3,6 +3,12 @@
 #include <MyGUI_InputManager.h>
 #include <MyGUI_Button.h>
 
+#include <components/openmw-mp/Log.hpp>
+#include "../mwmp/Main.hpp"
+#include "../mwmp/Networking.hpp"
+#include "../mwmp/WorldEvent.hpp"
+#include "../mwmp/WorldController.hpp"
+
 #include "../mwbase/environment.hpp"
 #include "../mwbase/world.hpp"
 #include "../mwbase/soundmanager.hpp"
@@ -57,7 +63,7 @@ namespace MWGui
     {
         if (mDragAndDrop->mIsOnDragAndDrop)
         {
-            if (!dynamic_cast<PickpocketItemModel*>(mModel))
+            if (mModel && mModel->allowedToInsertItems())
                 dropItem();
             return;
         }
@@ -95,6 +101,35 @@ namespace MWGui
         if (!onTakeItem(mModel->getItem(mSelectedItem), count))
             return;
 
+        // Added by tes3mp
+        mwmp::WorldEvent *worldEvent = mwmp::Main::get().getNetworking()->resetWorldEvent();
+        worldEvent->cell = *mPtr.getCell()->getCell();
+        worldEvent->action = mwmp::BaseEvent::REMOVE;
+
+        mwmp::WorldObject worldObject;
+        worldObject.refId = mPtr.getCellRef().getRefId();
+        worldObject.refNumIndex = mPtr.getCellRef().getRefNum().mIndex;
+
+        MWWorld::Ptr itemPtr = mModel->getItem(mSelectedItem).mBase;
+
+        mwmp::ContainerItem containerItem;
+        containerItem.refId =itemPtr.getCellRef().getRefId();
+        containerItem.count = itemPtr.getRefData().getCount();
+        containerItem.charge = itemPtr.getCellRef().getCharge();
+        containerItem.actionCount = count;
+
+        worldObject.containerChanges.items.push_back(containerItem);
+        worldEvent->addObject(worldObject);
+
+        mwmp::Main::get().getNetworking()->getWorldPacket(ID_CONTAINER)->Send(worldEvent);
+
+        LOG_MESSAGE_SIMPLE(Log::LOG_INFO, "Sending ID_CONTAINER about\n- Ptr cellRef: %s, %i\n- cell: %s\n- item: %s, %i",
+            worldObject.refId.c_str(),
+            worldObject.refNumIndex,
+            worldEvent->cell.getDescription().c_str(),
+            containerItem.refId.c_str(),
+            containerItem.count);
+
         mDragAndDrop->startDrag(mSelectedItem, mSortModel, mModel, mItemView, count);
     }
 
@@ -121,17 +156,50 @@ namespace MWGui
             }
         }
 
+        // Added by tes3mp
+        mwmp::WorldEvent *worldEvent = mwmp::Main::get().getNetworking()->resetWorldEvent();
+        worldEvent->cell = *mPtr.getCell()->getCell();
+        worldEvent->action = mwmp::BaseEvent::ADD;
+
+        mwmp::WorldObject worldObject;
+        worldObject.refId = mPtr.getCellRef().getRefId();
+        worldObject.refNumIndex = mPtr.getCellRef().getRefNum().mIndex;
+
+        MWWorld::Ptr itemPtr = mDragAndDrop->mItem.mBase;
+
+        mwmp::ContainerItem containerItem;
+        containerItem.refId = itemPtr.getCellRef().getRefId();
+        
+        // Make sure we get the drag and drop count, not the count of the original item
+        containerItem.count = mDragAndDrop->mDraggedCount;
+
+        containerItem.charge = itemPtr.getCellRef().getCharge();
+
+        worldObject.containerChanges.items.push_back(containerItem);
+        worldEvent->addObject(worldObject);
+
+        mwmp::Main::get().getNetworking()->getWorldPacket(ID_CONTAINER)->Send(worldEvent);
+
+        LOG_MESSAGE_SIMPLE(Log::LOG_INFO, "Sending ID_CONTAINER about\n- Ptr cellRef: %s, %i\n- cell: %s\n- item: %s, %i",
+            worldObject.refId.c_str(),
+            worldObject.refNumIndex,
+            worldEvent->cell.getDescription().c_str(),
+            containerItem.refId.c_str(),
+            containerItem.count);
+
         mDragAndDrop->drop(mModel, mItemView);
     }
 
     void ContainerWindow::onBackgroundSelected()
     {
-        if (mDragAndDrop->mIsOnDragAndDrop && !dynamic_cast<PickpocketItemModel*>(mModel))
+        if (mDragAndDrop->mIsOnDragAndDrop && mModel && mModel->allowedToInsertItems())
             dropItem();
     }
 
     void ContainerWindow::openContainer(const MWWorld::Ptr& container, bool loot)
     {
+        mwmp::Main::get().getWorldController()->openContainer(container, loot);
+
         mPickpocketDetected = false;
         mPtr = container;
 
@@ -175,6 +243,7 @@ namespace MWGui
 
     void ContainerWindow::close()
     {
+        mwmp::Main::get().getWorldController()->closeContainer(mPtr);
         WindowBase::close();
 
         if (dynamic_cast<PickpocketItemModel*>(mModel)
@@ -236,6 +305,23 @@ namespace MWGui
             }
 
             MWBase::Environment::get().getWindowManager()->removeGuiMode(GM_Container);
+
+            // Added by tes3mp
+            mwmp::WorldEvent *worldEvent = mwmp::Main::get().getNetworking()->resetWorldEvent();
+            worldEvent->cell = *mPtr.getCell()->getCell();
+            worldEvent->action = mwmp::BaseEvent::SET;
+
+            mwmp::WorldObject worldObject;
+            worldObject.refId = mPtr.getCellRef().getRefId();
+            worldObject.refNumIndex = mPtr.getCellRef().getRefNum().mIndex;
+            worldEvent->addObject(worldObject);
+
+            mwmp::Main::get().getNetworking()->getWorldPacket(ID_CONTAINER)->Send(worldEvent);
+
+            LOG_MESSAGE_SIMPLE(Log::LOG_INFO, "Sending ID_CONTAINER about\n- Ptr cellRef: %s, %i\n- cell: %s",
+                worldObject.refId.c_str(),
+                worldObject.refNumIndex,
+                worldEvent->cell.getDescription().c_str());
         }
     }
 
@@ -271,7 +357,7 @@ namespace MWGui
             {
                 int value = item.mBase.getClass().getValue(item.mBase) * count;
                 MWBase::Environment::get().getMechanicsManager()->commitCrime(
-                            player, MWWorld::Ptr(), MWBase::MechanicsManager::OT_Theft, value, true);
+                            player, mPtr, MWBase::MechanicsManager::OT_Theft, value, true);
                 MWBase::Environment::get().getWindowManager()->removeGuiMode(MWGui::GM_Container);
                 mPickpocketDetected = true;
                 return false;

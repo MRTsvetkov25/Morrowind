@@ -55,7 +55,9 @@ namespace MWGui
     void GenerateClassResultDialog::setClassId(const std::string &classId)
     {
         mCurrentClassId = classId;
-        mClassImage->setImageTexture(std::string("textures\\levelup\\") + mCurrentClassId + ".dds");
+
+        setClassImage(mClassImage, mCurrentClassId);
+
         mClassName->setCaption(MWBase::Environment::get().getWorld()->getStore().get<ESM::Class>().find(mCurrentClassId)->mName);
 
         center();
@@ -191,13 +193,15 @@ namespace MWGui
 
         const MWWorld::ESMStore &store = MWBase::Environment::get().getWorld()->getStore();
 
-        std::vector<std::pair<std::string, std::string> > items; // class id, class name
-        MWWorld::Store<ESM::Class>::iterator it = store.get<ESM::Class>().begin();
-        for (; it != store.get<ESM::Class>().end(); ++it)
+        std::vector<std::pair<std::string, std::string> > items; // class id, class name       
+        for (MWWorld::Store<ESM::Class>::iterator it = store.get<ESM::Class>().begin(); it != store.get<ESM::Class>().end(); ++it)
         {
             bool playable = (it->mData.mIsPlayable != 0);
             if (!playable) // Only display playable classes
                 continue;
+
+            if (store.get<ESM::Class>().isDynamic(it->mId))
+                continue; // custom-made class not relevant for this dialog
 
             items.push_back(std::make_pair(it->mId, it->mName));
         }
@@ -254,7 +258,7 @@ namespace MWGui
             ToolTips::createSkillToolTip(mMajorSkill[i], klass->mData.mSkills[i][1]);
         }
 
-        mClassImage->setImageTexture(std::string("textures\\levelup\\") + mCurrentClassId + ".dds");
+        setClassImage(mClassImage, mCurrentClassId);
     }
 
     /* InfoBoxDialog */
@@ -898,6 +902,17 @@ namespace MWGui
     void DescriptionDialog::onOkClicked(MyGUI::Widget* _sender)
     {
         eventDone(this);
+    }
+
+    void setClassImage(MyGUI::ImageBox* imageBox, const std::string &classId)
+    {
+        std::string classImage = std::string("textures\\levelup\\") + classId + ".dds";
+        if (!MWBase::Environment::get().getWindowManager()->textureExists(classImage))
+        {
+            std::cout << "No class image for " << classId << ", falling back to default" << std::endl;
+            classImage = "textures\\levelup\\warrior.dds";
+        }
+        imageBox->setImageTexture(classImage);
     }
 
 }

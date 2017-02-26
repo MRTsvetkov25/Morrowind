@@ -31,6 +31,9 @@ namespace SceneUtil
         /// Internal use by the WorkQueue.
         void signalDone();
 
+        /// Set abort flag in order to return from doWork() as soon as possible. May not be respected by all WorkItems.
+        virtual void abort() {}
+
     protected:
         OpenThreads::Atomic mDone;
         OpenThreads::Mutex mMutex;
@@ -50,18 +53,23 @@ namespace SceneUtil
 
         /// Add a new work item to the back of the queue.
         /// @par The work item's waitTillDone() method may be used by the caller to wait until the work is complete.
-        void addWorkItem(osg::ref_ptr<WorkItem> item);
+        /// @param front If true, add item to the front of the queue. If false (default), add to the back.
+        void addWorkItem(osg::ref_ptr<WorkItem> item, bool front=false);
 
         /// Get the next work item from the front of the queue. If the queue is empty, waits until a new item is added.
         /// If the workqueue is in the process of being destroyed, may return NULL.
         /// @par Used internally by the WorkThread.
         osg::ref_ptr<WorkItem> removeWorkItem();
 
+        unsigned int getNumItems() const;
+
+        unsigned int getNumActiveThreads() const;
+
     private:
         bool mIsReleased;
-        std::queue<osg::ref_ptr<WorkItem> > mQueue;
+        std::deque<osg::ref_ptr<WorkItem> > mQueue;
 
-        OpenThreads::Mutex mMutex;
+        mutable OpenThreads::Mutex mMutex;
         OpenThreads::Condition mCondition;
 
         std::vector<WorkThread*> mThreads;
@@ -75,8 +83,11 @@ namespace SceneUtil
 
         virtual void run();
 
+        bool isActive() const;
+
     private:
         WorkQueue* mWorkQueue;
+        volatile bool mActive;
     };
 
 

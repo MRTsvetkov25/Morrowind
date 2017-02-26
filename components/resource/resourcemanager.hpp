@@ -8,6 +8,11 @@ namespace VFS
     class Manager;
 }
 
+namespace osg
+{
+    class Stats;
+}
+
 namespace Resource
 {
     class ObjectCache;
@@ -18,6 +23,7 @@ namespace Resource
     {
     public:
         ResourceManager(const VFS::Manager* vfs);
+        virtual ~ResourceManager();
 
         /// Clear cache entries that have not been referenced for longer than expiryDelay.
         virtual void updateCache(double referenceTime);
@@ -26,6 +32,8 @@ namespace Resource
         void setExpiryDelay (double expiryDelay);
 
         const VFS::Manager* getVFS() const;
+
+        virtual void reportStats(unsigned int frameNumber, osg::Stats* stats) {}
 
     protected:
         const VFS::Manager* mVFS;

@@ -27,13 +27,6 @@
 
 namespace
 {
-    std::string fpsLevelToStr(int level)
-    {
-        if (level == 0)
-            return "#{sOff}";
-        else //if (level == 1)
-            return "#{sOn}";
-    }
 
     std::string textureMipmappingToStr(const std::string& val)
     {
@@ -182,13 +175,9 @@ namespace MWGui
         getWidget(mOkButton, "OkButton");
         getWidget(mResolutionList, "ResolutionList");
         getWidget(mFullscreenButton, "FullscreenButton");
-        getWidget(mVSyncButton, "VSyncButton");
         getWidget(mWindowBorderButton, "WindowBorderButton");
         getWidget(mTextureFilteringButton, "TextureFilteringButton");
         getWidget(mAnisotropyBox, "AnisotropyBox");
-        getWidget(mShadersButton, "ShadersButton");
-        getWidget(mShadowsEnabledButton, "ShadowsEnabledButton");
-        getWidget(mShadowsTextureSize, "ShadowsTextureSize");
         getWidget(mControlsBox, "ControlsBox");
         getWidget(mResetControlsButton, "ResetControlsButton");
         getWidget(mKeyboardSwitch, "KeyboardButton");
@@ -217,8 +206,6 @@ namespace MWGui
         mResolutionList->eventListChangePosition += MyGUI::newDelegate(this, &SettingsWindow::onResolutionSelected);
 
         mWaterTextureSize->eventComboChangePosition += MyGUI::newDelegate(this, &SettingsWindow::onWaterTextureSizeChanged);
-
-        mShadowsTextureSize->eventComboChangePosition += MyGUI::newDelegate(this, &SettingsWindow::onShadowTextureSizeChanged);
 
         mKeyboardSwitch->eventMouseButtonClick += MyGUI::newDelegate(this, &SettingsWindow::onKeyboardSwitchClicked);
         mControllerSwitch->eventMouseButtonClick += MyGUI::newDelegate(this, &SettingsWindow::onControllerSwitchClicked);
@@ -259,13 +246,6 @@ namespace MWGui
             mWaterTextureSize->setIndexSelected(1);
         if (waterTextureSize >= 2048)
             mWaterTextureSize->setIndexSelected(2);
-
-        mShadowsTextureSize->setCaption (Settings::Manager::getString ("texture size", "Shadows"));
-
-        if (!Settings::Manager::getBool("shaders", "Objects"))
-        {
-            mShadowsEnabledButton->setEnabled(false);
-        }
 
         mWindowBorderButton->setEnabled(!Settings::Manager::getBool("fullscreen", "Video"));
 
@@ -346,12 +326,6 @@ namespace MWGui
         apply();
     }
 
-    void SettingsWindow::onShadowTextureSizeChanged(MyGUI::ComboBox *_sender, size_t pos)
-    {
-        Settings::Manager::setString("texture size", "Shadows", _sender->getItemNameAt(pos));
-        apply();
-    }
-
     void SettingsWindow::onButtonToggled(MyGUI::Widget* _sender)
     {
         std::string on = MWBase::Environment::get().getWindowManager()->getGameSettingString("sOn", "On");
@@ -366,21 +340,6 @@ namespace MWGui
         {
             _sender->castType<MyGUI::Button>()->setCaption(on);
             newState = true;
-        }
-
-        if (_sender == mShadersButton)
-        {
-            if (newState == false)
-            {
-                // shadows not supported
-                mShadowsEnabledButton->setEnabled(false);
-                mShadowsEnabledButton->setCaptionWithReplacing("#{sOff}");
-                Settings::Manager::setBool("enabled", "Shadows", false);
-            }
-            else
-            {
-                mShadowsEnabledButton->setEnabled(true);
-            }
         }
 
         if (_sender == mFullscreenButton)
@@ -507,9 +466,6 @@ namespace MWGui
         else
             actions = MWBase::Environment::get().getInputManager()->getActionControllerSorting();
 
-        const int h = 18;
-        const int w = mControlsBox->getWidth() - 28;
-        int curH = 0;
         for (std::vector<int>::const_iterator it = actions.begin(); it != actions.end(); ++it)
         {
             std::string desc = MWBase::Environment::get().getInputManager()->getActionDescription (*it);
@@ -522,16 +478,15 @@ namespace MWGui
             else
                 binding = MWBase::Environment::get().getInputManager()->getActionControllerBindingName(*it);
 
-            Gui::SharedStateButton* leftText = mControlsBox->createWidget<Gui::SharedStateButton>("SandTextButton", MyGUI::IntCoord(0,curH,w,h), MyGUI::Align::Default);
+            Gui::SharedStateButton* leftText = mControlsBox->createWidget<Gui::SharedStateButton>("SandTextButton", MyGUI::IntCoord(), MyGUI::Align::Default);
             leftText->setCaptionWithReplacing(desc);
 
-            Gui::SharedStateButton* rightText = mControlsBox->createWidget<Gui::SharedStateButton>("SandTextButton", MyGUI::IntCoord(0,curH,w,h), MyGUI::Align::Default);
+            Gui::SharedStateButton* rightText = mControlsBox->createWidget<Gui::SharedStateButton>("SandTextButton", MyGUI::IntCoord(), MyGUI::Align::Default);
             rightText->setCaptionWithReplacing(binding);
             rightText->setTextAlign (MyGUI::Align::Right);
             rightText->setUserData(*it); // save the action id for callbacks
             rightText->eventMouseButtonClick += MyGUI::newDelegate(this, &SettingsWindow::onRebindAction);
             rightText->eventMouseWheel += MyGUI::newDelegate(this, &SettingsWindow::onInputTabMouseWheel);
-            curH += h;
 
             Gui::ButtonGroup group;
             group.push_back(leftText);
@@ -539,9 +494,25 @@ namespace MWGui
             Gui::SharedStateButton::createButtonGroup(group);
         }
 
+        layoutControlsBox();
+    }
+
+    void SettingsWindow::layoutControlsBox()
+    {
+        const int h = 18;
+        const int w = mControlsBox->getWidth() - 28;
+        const int noWidgetsInRow = 2;
+        const int totalH = mControlsBox->getChildCount() / noWidgetsInRow * h;
+
+        for (size_t i = 0; i < mControlsBox->getChildCount(); i++)
+        {
+            MyGUI::Widget * widget = mControlsBox->getChildAt(i);
+            widget->setCoord(0, i / noWidgetsInRow * h, w, h);
+        }
+
         // Canvas size must be expressed with VScroll disabled, otherwise MyGUI would expand the scroll area when the scrollbar is hidden
         mControlsBox->setVisibleVScroll(false);
-        mControlsBox->setCanvasSize (mControlsBox->getWidth(), std::max(curH, mControlsBox->getHeight()));
+        mControlsBox->setCanvasSize (mControlsBox->getWidth(), std::max(totalH, mControlsBox->getHeight()));
         mControlsBox->setVisibleVScroll(true);
     }
 
@@ -597,7 +568,7 @@ namespace MWGui
 
     void SettingsWindow::onWindowResize(MyGUI::Window *_sender)
     {
-        updateControlsBox();
+        layoutControlsBox();
     }
 
     void SettingsWindow::resetScrollbars()

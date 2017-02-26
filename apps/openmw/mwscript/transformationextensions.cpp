@@ -1,5 +1,9 @@
 #include <iostream>
 
+#include "../mwmp/Main.hpp"
+#include "../mwmp/Networking.hpp"
+#include "../mwmp/WorldEvent.hpp"
+
 #include <components/sceneutil/positionattitudetransform.hpp>
 
 #include <components/esm/loadcell.hpp>
@@ -10,6 +14,7 @@
 #include <components/interpreter/interpreter.hpp>
 #include <components/interpreter/runtime.hpp>
 #include <components/interpreter/opcodes.hpp>
+#include <components/openmw-mp/Log.hpp>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/world.hpp"
@@ -40,6 +45,18 @@ namespace MWScript
 
                     Interpreter::Type_Float scale = runtime[0].mFloat;
                     runtime.pop();
+
+                    // Added by tes3mp
+                    mwmp::WorldEvent *worldEvent = mwmp::Main::get().getNetworking()->resetWorldEvent();
+                    worldEvent->cell = *ptr.getCell()->getCell();
+
+                    mwmp::WorldObject worldObject;
+                    worldObject.refId = ptr.getCellRef().getRefId();
+                    worldObject.refNumIndex = ptr.getCellRef().getRefNum().mIndex;
+                    worldObject.scale = scale;
+                    worldEvent->addObject(worldObject);
+
+                    mwmp::Main::get().getNetworking()->getWorldPacket(ID_OBJECT_SCALE)->Send(worldEvent);
 
                     MWBase::Environment::get().getWorld()->scaleObject(ptr,scale);
                 }
@@ -318,8 +335,8 @@ namespace MWScript
                         ptr = MWBase::Environment::get().getWorld()->moveObject(ptr,store,x,y,z);
                         dynamic_cast<MWScript::InterpreterContext&>(runtime.getContext()).updatePtr(base,ptr);
 
-                        float ax = osg::RadiansToDegrees(ptr.getRefData().getPosition().rot[0]);
-                        float ay = osg::RadiansToDegrees(ptr.getRefData().getPosition().rot[1]);
+                        float ax = ptr.getRefData().getPosition().rot[0];
+                        float ay = ptr.getRefData().getPosition().rot[1];
                         // Note that you must specify ZRot in minutes (1 degree = 60 minutes; north = 0, east = 5400, south = 10800, west = 16200)
                         // except for when you position the player, then degrees must be used.
                         // See "Morrowind Scripting for Dummies (9th Edition)" pages 50 and 54 for reference.
@@ -374,14 +391,14 @@ namespace MWScript
                     }
                     dynamic_cast<MWScript::InterpreterContext&>(runtime.getContext()).updatePtr(base,ptr);
 
-                    float ax = osg::RadiansToDegrees(ptr.getRefData().getPosition().rot[0]);
-                    float ay = osg::RadiansToDegrees(ptr.getRefData().getPosition().rot[1]);
+                    float ax = ptr.getRefData().getPosition().rot[0];
+                    float ay = ptr.getRefData().getPosition().rot[1];
                     // Note that you must specify ZRot in minutes (1 degree = 60 minutes; north = 0, east = 5400, south = 10800, west = 16200)
                     // except for when you position the player, then degrees must be used.
                     // See "Morrowind Scripting for Dummies (9th Edition)" pages 50 and 54 for reference.
                     if(ptr != MWMechanics::getPlayer())
                         zRot = zRot/60.0f;
-                    MWBase::Environment::get().getWorld()->rotateObject(ptr,ax,ay,zRot);
+                    MWBase::Environment::get().getWorld()->rotateObject(ptr,ax,ay,osg::DegreesToRadians(zRot));
                     ptr.getClass().adjustPosition(ptr, false);
                 }
         };
@@ -434,7 +451,7 @@ namespace MWScript
                         pos.rot[2] = osg::DegreesToRadians(zRotDegrees);
                         MWWorld::ManualRef ref(MWBase::Environment::get().getWorld()->getStore(),itemID);
                         ref.getPtr().getCellRef().setPosition(pos);
-                        MWWorld::Ptr placed = MWBase::Environment::get().getWorld()->safePlaceObject(ref.getPtr(),store,pos);
+                        MWWorld::Ptr placed = MWBase::Environment::get().getWorld()->placeObject(ref.getPtr(),store,pos);
                         placed.getClass().adjustPosition(placed, true);
                     }
                 }
@@ -482,7 +499,7 @@ namespace MWScript
                     pos.rot[2] = osg::DegreesToRadians(zRotDegrees);
                     MWWorld::ManualRef ref(MWBase::Environment::get().getWorld()->getStore(),itemID);
                     ref.getPtr().getCellRef().setPosition(pos);
-                    MWWorld::Ptr placed = MWBase::Environment::get().getWorld()->safePlaceObject(ref.getPtr(),store,pos);
+                    MWWorld::Ptr placed = MWBase::Environment::get().getWorld()->placeObject(ref.getPtr(),store,pos);
                     placed.getClass().adjustPosition(placed, true);
                 }
         };
@@ -508,6 +525,9 @@ namespace MWScript
                     Interpreter::Type_Integer direction = runtime[0].mInteger;
                     runtime.pop();
 
+                    if (direction < 0 || direction > 3)
+                        throw std::runtime_error ("invalid direction");
+
                     if (count<0)
                         throw std::runtime_error ("count must be non-negative");
 
@@ -516,38 +536,41 @@ namespace MWScript
 
                     for (int i=0; i<count; ++i)
                     {
-                        ESM::Position ipos = actor.getRefData().getPosition();
-                        osg::Vec3f pos(ipos.asVec3());
-                        osg::Quat rot(ipos.rot[2], osg::Vec3f(0,0,-1));
-                        if(direction == 0) pos = pos + (rot * osg::Vec3f(0,1,0)) * distance;
-                        else if(direction == 1) pos = pos - (rot * osg::Vec3f(0,1,0)) * distance;
-                        else if(direction == 2) pos = pos - (rot * osg::Vec3f(1,0,0)) * distance;
-                        else if(direction == 3) pos = pos + (rot * osg::Vec3f(1,0,0)) * distance;
-                        else throw std::runtime_error ("direction must be 0,1,2 or 3");
-
-                        ipos.pos[0] = pos.x();
-                        ipos.pos[1] = pos.y();
-                        ipos.pos[2] = pos.z();
-
-                        if (actor.getClass().isActor())
-                        {
-                            // TODO: should this depend on the 'direction' parameter?
-                            ipos.rot[0] = 0;
-                            ipos.rot[1] = 0;
-                            ipos.rot[2] = 0;
-                        }
-                        else
-                        {
-                            ipos.rot[0] = actor.getRefData().getPosition().rot[0];
-                            ipos.rot[1] = actor.getRefData().getPosition().rot[1];
-                            ipos.rot[2] = actor.getRefData().getPosition().rot[2];
-                        }
                         // create item
-                        MWWorld::CellStore* store = actor.getCell();
                         MWWorld::ManualRef ref(MWBase::Environment::get().getWorld()->getStore(), itemID, 1);
-                        ref.getPtr().getCellRef().setPosition(ipos);
 
-                        MWBase::Environment::get().getWorld()->safePlaceObject(ref.getPtr(),store,ipos);
+                        MWWorld::Ptr ptr = MWBase::Environment::get().getWorld()->safePlaceObject(ref.getPtr(), actor, actor.getCell(), direction, distance);
+
+                        // Major change done by tes3mp:
+                        // When the object is dropped, generate a new RefNum index for it that follows the last one
+                        // in the cell, so that packets can be sent and received specifically about it, instead
+                        // of giving it a RefNum index of 0 as in regular OpenMW
+                        MWWorld::CellStore *cellStore = ptr.getCell();
+                        cellStore->setLastRefNumIndex(cellStore->getLastRefNumIndex() + 1);
+                        ptr.getCellRef().setRefNumIndex(cellStore->getLastRefNumIndex());
+
+                        // Added by tes3mp
+                        mwmp::WorldEvent *worldEvent = mwmp::Main::get().getNetworking()->resetWorldEvent();
+                        worldEvent->cell = *ptr.getCell()->getCell();
+
+                        mwmp::WorldObject worldObject;
+                        worldObject.refId = ptr.getCellRef().getRefId();
+                        worldObject.refNumIndex = ptr.getCellRef().getRefNum().mIndex;
+                        worldObject.charge = ptr.getCellRef().getCharge();
+                        worldObject.count = 1;
+
+                        // Make sure we send the RefData position instead of the CellRef one, because that's what
+                        // we actually see on this client
+                        worldObject.pos = ptr.getRefData().getPosition();
+
+                        worldEvent->addObject(worldObject);
+
+                        mwmp::Main::get().getNetworking()->getWorldPacket(ID_OBJECT_PLACE)->Send(worldEvent);
+
+                        LOG_MESSAGE_SIMPLE(Log::LOG_VERBOSE, "Sending ID_OBJECT_PLACE\n- cellRef: %s, %i\n- count: %i",
+                            worldObject.refId.c_str(),
+                            worldObject.refNumIndex,
+                            worldObject.count);
                     }
                 }
         };
@@ -639,7 +662,6 @@ namespace MWScript
                     dynamic_cast<MWScript::InterpreterContext&>(runtime.getContext()).updatePtr(ptr,
                         MWBase::Environment::get().getWorld()->moveObject(ptr, ptr.getCellRef().getPosition().pos[0],
                             ptr.getCellRef().getPosition().pos[1], ptr.getCellRef().getPosition().pos[2]));
-
                 }
         };
 
@@ -683,6 +705,7 @@ namespace MWScript
                     osg::Vec3f diff = ptr.getRefData().getBaseNode()->getAttitude() * posChange;
                     osg::Vec3f worldPos(ptr.getRefData().getPosition().asVec3());
                     worldPos += diff;
+
                     MWBase::Environment::get().getWorld()->moveObject(ptr, worldPos.x(), worldPos.y(), worldPos.z());
                 }
         };

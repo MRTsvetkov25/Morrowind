@@ -27,6 +27,7 @@ namespace osg
 {
     class Object;
     class State;
+    class NodeVisitor;
 }
 
 namespace Resource {
@@ -63,8 +64,17 @@ class ObjectCache : public osg::Referenced
         /** Get an ref_ptr<Object> from the object cache*/
         osg::ref_ptr<osg::Object> getRefFromObjectCache(const std::string& fileName);
 
+        /** Check if an object is in the cache, and if it is, update its usage time stamp. */
+        bool checkInObjectCache(const std::string& fileName, double timeStamp);
+
         /** call releaseGLObjects on all objects attached to the object cache.*/
         void releaseGLObjects(osg::State* state);
+
+        /** call node->accept(nv); for all nodes in the objectCache. */
+        void accept(osg::NodeVisitor& nv);
+
+        /** Get the number of objects in the cache. */
+        unsigned int getCacheSize() const;
 
     protected:
 
@@ -74,7 +84,7 @@ class ObjectCache : public osg::Referenced
         typedef std::map<std::string, ObjectTimeStampPair >             ObjectCacheMap;
 
         ObjectCacheMap                          _objectCache;
-        OpenThreads::Mutex                      _objectCacheMutex;
+        mutable OpenThreads::Mutex              _objectCacheMutex;
 
 };
 

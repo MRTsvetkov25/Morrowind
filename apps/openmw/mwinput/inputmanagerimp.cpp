@@ -17,6 +17,12 @@
 #include <components/sdlutil/sdlinputwrapper.hpp>
 #include <components/sdlutil/sdlvideowrapper.hpp>
 
+#include "../mwmp/Main.hpp"
+
+#include <components/esm/esmwriter.hpp>
+#include <components/esm/esmreader.hpp>
+#include <components/esm/controlsstate.hpp>
+
 #include "../mwbase/world.hpp"
 #include "../mwbase/windowmanager.hpp"
 #include "../mwbase/soundmanager.hpp"
@@ -658,6 +664,7 @@ namespace MWInput
 
     void InputManager::keyPressed( const SDL_KeyboardEvent &arg )
     {
+        mwmp::Main::pressedKey(arg.keysym.scancode);
         // HACK: to make Morrowind's default keybinding for the console work without printing an extra "^" upon closing
         // This assumes that SDL_TextInput events always come *after* the key event
         // (which is somewhat reasonable, and hopefully true for all SDL platforms)
@@ -902,13 +909,17 @@ namespace MWInput
     }
 
     void InputManager::quickLoad() {
+        /* Disabled by tes3mp
         if (!MyGUI::InputManager::getInstance().isModalAny())
             MWBase::Environment::get().getStateManager()->quickLoad();
+        */
     }
 
     void InputManager::quickSave() {
+        /* Disabled by tes3mp
         if (!MyGUI::InputManager::getInstance().isModalAny())
             MWBase::Environment::get().getStateManager()->quickSave();
+        */
     }
     void InputManager::toggleSpell()
     {
@@ -957,7 +968,7 @@ namespace MWInput
         if (!MWBase::Environment::get().getWindowManager()->getRestEnabled () || MWBase::Environment::get().getWindowManager()->isGuiMode ())
             return;
 
-        if(mPlayer->isInCombat()) {//Check if in combat
+        if(mPlayer->enemiesNearby()) {//Check if in combat
             MWBase::Environment::get().getWindowManager()->messageBox("#{sNotifyMessage2}"); //Nope,
             return;
         }
@@ -1326,10 +1337,12 @@ namespace MWInput
 
         ICS::Control* c = mInputBinder->getChannel (action)->getAttachedControls ().front().control;
 
-        if (mInputBinder->getKeyBinding (c, ICS::Control::INCREASE) != SDL_SCANCODE_UNKNOWN)
-            return mInputBinder->scancodeToString (mInputBinder->getKeyBinding (c, ICS::Control::INCREASE));
-        else if (mInputBinder->getMouseButtonBinding (c, ICS::Control::INCREASE) != ICS_MAX_DEVICE_BUTTONS)
-            return "#{sMouse} " + boost::lexical_cast<std::string>(mInputBinder->getMouseButtonBinding (c, ICS::Control::INCREASE));
+        SDL_Scancode key = mInputBinder->getKeyBinding (c, ICS::Control::INCREASE);
+        unsigned int mouse = mInputBinder->getMouseButtonBinding (c, ICS::Control::INCREASE);
+        if (key != SDL_SCANCODE_UNKNOWN)
+            return MyGUI::TextIterator::toTagsString(mInputBinder->scancodeToString (key));
+        else if (mouse != ICS_MAX_DEVICE_BUTTONS)
+            return "#{sMouse} " + boost::lexical_cast<std::string>(mouse);
         else
             return "#{sNone}";
     }
@@ -1478,6 +1491,10 @@ namespace MWInput
         ret.push_back(A_QuickKey8);
         ret.push_back(A_QuickKey9);
         ret.push_back(A_QuickKey10);
+        ret.push_back(A_CycleSpellLeft);
+        ret.push_back(A_CycleSpellRight);
+        ret.push_back(A_CycleWeaponLeft);
+        ret.push_back(A_CycleWeaponRight);
 
         return ret;
     }
@@ -1570,6 +1587,44 @@ namespace MWInput
             mInputBinder->removeJoystickAxisBinding (mFakeDeviceID, mInputBinder->getJoystickAxisBinding (control, mFakeDeviceID, ICS::Control::INCREASE));
         if (mInputBinder->getJoystickButtonBinding (control, mFakeDeviceID, ICS::Control::INCREASE) != ICS_MAX_DEVICE_BUTTONS)
             mInputBinder->removeJoystickButtonBinding (mFakeDeviceID, mInputBinder->getJoystickButtonBinding (control, mFakeDeviceID, ICS::Control::INCREASE));
+    }
+
+    int InputManager::countSavedGameRecords() const
+    {
+        return 1;
+    }
+
+    void InputManager::write(ESM::ESMWriter& writer, Loading::Listener& /*progress*/)
+    {
+        ESM::ControlsState controls;
+        controls.mViewSwitchDisabled = !getControlSwitch("playerviewswitch");
+        controls.mControlsDisabled = !getControlSwitch("playercontrols");
+        controls.mJumpingDisabled = !getControlSwitch("playerjumping");
+        controls.mLookingDisabled = !getControlSwitch("playerlooking");
+        controls.mVanityModeDisabled = !getControlSwitch("vanitymode");
+        controls.mWeaponDrawingDisabled = !getControlSwitch("playerfighting");
+        controls.mSpellDrawingDisabled = !getControlSwitch("playermagic");
+
+        writer.startRecord (ESM::REC_INPU);
+        controls.save(writer);
+        writer.endRecord (ESM::REC_INPU);
+    }
+
+    void InputManager::readRecord(ESM::ESMReader& reader, uint32_t type)
+    {
+        if (type == ESM::REC_INPU)
+        {
+            ESM::ControlsState controls;
+            controls.load(reader);
+
+            toggleControlSwitch("playerviewswitch", !controls.mViewSwitchDisabled);
+            toggleControlSwitch("playercontrols", !controls.mControlsDisabled);
+            toggleControlSwitch("playerjumping", !controls.mJumpingDisabled);
+            toggleControlSwitch("playerlooking", !controls.mLookingDisabled);
+            toggleControlSwitch("vanitymode", !controls.mVanityModeDisabled);
+            toggleControlSwitch("playerfighting", !controls.mWeaponDrawingDisabled);
+            toggleControlSwitch("playermagic", !controls.mSpellDrawingDisabled);
+        }
     }
 
     void InputManager::resetToDefaultKeyBindings()

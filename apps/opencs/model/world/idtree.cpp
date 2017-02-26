@@ -198,12 +198,12 @@ QModelIndex CSMWorld::IdTree::parent (const QModelIndex& index) const
         return QModelIndex();
 
     unsigned int id = index.internalId();
-    const std::pair<int, int>& adress(unfoldIndexAddress(id));
+    const std::pair<int, int>& address(unfoldIndexAddress(id));
 
-    if (adress.first >= this->rowCount() || adress.second >= this->columnCount())
+    if (address.first >= this->rowCount() || address.second >= this->columnCount())
         throw "Parent index is not present in the model";
 
-    return createIndex(adress.first, adress.second);
+    return createIndex(address.first, address.second);
 }
 
 unsigned int CSMWorld::IdTree::foldIndexAddress (const QModelIndex& index) const
@@ -264,7 +264,7 @@ void CSMWorld::IdTree::setNestedTable(const QModelIndex& index, const CSMWorld::
 CSMWorld::NestedTableWrapperBase* CSMWorld::IdTree::nestedTable(const QModelIndex& index) const
 {
     if (!hasChildren(index))
-        throw std::logic_error("Tried to retrive nested table, but index has no children");
+        throw std::logic_error("Tried to retrieve nested table, but index has no children");
 
     return mNestedCollection->nestedTable(index.row(), index.column());
 }

@@ -20,6 +20,12 @@ void ESM::CreatureStats::load (ESMReader &esm)
     mDead = false;
     esm.getHNOT (mDead, "DEAD");
 
+    mDeathAnimationFinished = false;
+    esm.getHNOT (mDeathAnimationFinished, "DFNT");
+
+    if (esm.getFormat() < 3 && mDead)
+        mDeathAnimationFinished = true;
+
     mDied = false;
     esm.getHNOT (mDied, "DIED");
 
@@ -84,8 +90,15 @@ void ESM::CreatureStats::load (ESMReader &esm)
     mActorId = -1;
     esm.getHNOT (mActorId, "ACID");
 
-    mDeathAnimation = 0;
+    //mHitAttemptActorId = -1;
+    //esm.getHNOT(mHitAttemptActorId, "HAID");
+
+    mDeathAnimation = -1;
     esm.getHNOT (mDeathAnimation, "DANM");
+
+    mTimeOfDeath.mDay = 0;
+    mTimeOfDeath.mHour = 0;
+    esm.getHNOT (mTimeOfDeath, "DTIM");
 
     mSpells.load(esm);
     mActiveSpells.load(esm);
@@ -135,6 +148,9 @@ void ESM::CreatureStats::save (ESMWriter &esm) const
 
     if (mDead)
         esm.writeHNT ("DEAD", mDead);
+
+    if (mDeathAnimationFinished)
+        esm.writeHNT ("DFNT", mDeathAnimationFinished);
 
     if (mDied)
         esm.writeHNT ("DIED", mDied);
@@ -190,8 +206,14 @@ void ESM::CreatureStats::save (ESMWriter &esm) const
     if (mActorId != -1)
         esm.writeHNT ("ACID", mActorId);
 
-    if (mDeathAnimation)
+    //if (mHitAttemptActorId != -1)
+    //    esm.writeHNT("HAID", mHitAttemptActorId);
+
+    if (mDeathAnimation != -1)
         esm.writeHNT ("DANM", mDeathAnimation);
+
+    if (mTimeOfDeath.mHour != 0 && mTimeOfDeath.mDay != 0)
+        esm.writeHNT ("DTIM", mTimeOfDeath);
 
     mSpells.save(esm);
     mActiveSpells.save(esm);
@@ -224,8 +246,10 @@ void ESM::CreatureStats::blank()
     mTradeTime.mDay = 0;
     mGoldPool = 0;
     mActorId = -1;
+    //mHitAttemptActorId = -1;
     mHasAiSettings = false;
     mDead = false;
+    mDeathAnimationFinished = false;
     mDied = false;
     mMurdered = false;
     mTalkedTo = false;
@@ -240,6 +264,6 @@ void ESM::CreatureStats::blank()
     mFallHeight = 0.f;
     mRecalcDynamicStats = false;
     mDrawState = 0;
-    mDeathAnimation = 0;
+    mDeathAnimation = -1;
     mLevel = 1;
 }

@@ -10,6 +10,11 @@
 
 #include <components/esm/cellid.hpp>
 
+#include <components/openmw-mp/Log.hpp>
+#include "../mwmp/Main.hpp"
+#include "../mwmp/Networking.hpp"
+#include "../mwmp/WorldEvent.hpp"
+
 #include "../mwworld/esmstore.hpp"
 
 #include "../mwbase/environment.hpp"
@@ -138,14 +143,16 @@ namespace MWScript
 
     InterpreterContext::InterpreterContext (
         MWScript::Locals *locals, MWWorld::Ptr reference, const std::string& targetId)
-    : mLocals (locals), mReference (reference),
-      mActivationHandled (false), mTargetId (targetId)
+    : mLocals (locals), mReference (reference), mTargetId (targetId)
     {
         // If we run on a reference (local script, dialogue script or console with object
         // selected), store the ID of that reference store it so it can be inherited by
         // targeted scripts started from this one.
         if (targetId.empty() && !reference.isEmpty())
             mTargetId = reference.getCellRef().getRefId();
+
+        // Added by tes3mp
+        sendPackets = false;
     }
 
     int InterpreterContext::getLocalShort (int index) const
@@ -178,6 +185,29 @@ namespace MWScript
             throw std::runtime_error ("local variables not available in this context");
 
         mLocals->mShorts.at (index) = value;
+
+        // Added by tes3mp
+        if (sendPackets)
+        {
+            mwmp::WorldEvent *worldEvent = mwmp::Main::get().getNetworking()->resetWorldEvent();
+            worldEvent->cell = *mReference.getCell()->getCell();
+
+            mwmp::WorldObject worldObject;
+            worldObject.refId = mReference.getCellRef().getRefId();
+            worldObject.refNumIndex = mReference.getCellRef().getRefNum().mIndex;
+            worldObject.index = index;
+            worldObject.shortVal = value;
+            worldEvent->addObject(worldObject);
+
+            mwmp::Main::get().getNetworking()->getWorldPacket(ID_SCRIPT_LOCAL_SHORT)->Send(worldEvent);
+
+            LOG_MESSAGE_SIMPLE(Log::LOG_VERBOSE, "Sending ID_SCRIPT_LOCAL_SHORT\n- cellRef: %s, %i\n- cell: %s\n- index: %i\n- shortVal: %i",
+                worldObject.refId.c_str(),
+                worldObject.refNumIndex,
+                worldEvent->cell.getDescription().c_str(),
+                worldObject.index,
+                worldObject.shortVal);
+        }
     }
 
     void InterpreterContext::setLocalLong (int index, int value)
@@ -194,6 +224,31 @@ namespace MWScript
             throw std::runtime_error ("local variables not available in this context");
 
         mLocals->mFloats.at (index) = value;
+
+        // Added by tes3mp
+        //
+        // Only send a packet if this float has no decimals (to avoid spam)
+        if (sendPackets && value == (int) value)
+        {
+            mwmp::WorldEvent *worldEvent = mwmp::Main::get().getNetworking()->resetWorldEvent();
+            worldEvent->cell = *mReference.getCell()->getCell();
+
+            mwmp::WorldObject worldObject;
+            worldObject.refId = mReference.getCellRef().getRefId();
+            worldObject.refNumIndex = mReference.getCellRef().getRefNum().mIndex;
+            worldObject.index = index;
+            worldObject.floatVal = value;
+            worldEvent->addObject(worldObject);
+
+            mwmp::Main::get().getNetworking()->getWorldPacket(ID_SCRIPT_LOCAL_FLOAT)->Send(worldEvent);
+
+            LOG_MESSAGE_SIMPLE(Log::LOG_VERBOSE, "Sending ID_SCRIPT_LOCAL_FLOAT\n- cellRef: %s, %i\n- cell: %s\n- index: %i\n- floatVal: %f",
+                worldObject.refId.c_str(),
+                worldObject.refNumIndex,
+                worldEvent->cell.getDescription().c_str(),
+                worldObject.index,
+                worldObject.floatVal);
+        }
     }
 
     void InterpreterContext::messageBox (const std::string& message,
@@ -211,7 +266,12 @@ namespace MWScript
 
     bool InterpreterContext::menuMode()
     {
+        /* Disabled by tes3mp, because being in a menu should not pause scripts in it
+
         return MWBase::Environment::get().getWindowManager()->isGuiMode();
+        */
+
+        return false;
     }
 
     int InterpreterContext::getGlobalShort (const std::string& name) const
@@ -232,6 +292,23 @@ namespace MWScript
 
     void InterpreterContext::setGlobalShort (const std::string& name, int value)
     {
+        // Added by tes3mp
+        if (sendPackets)
+        {
+            mwmp::WorldEvent *worldEvent = mwmp::Main::get().getNetworking()->resetWorldEvent();
+
+            mwmp::WorldObject worldObject;
+            worldObject.varName = name;
+            worldObject.shortVal = value;
+            worldEvent->addObject(worldObject);
+
+            mwmp::Main::get().getNetworking()->getWorldPacket(ID_SCRIPT_GLOBAL_SHORT)->Send(worldEvent);
+
+            LOG_MESSAGE_SIMPLE(Log::LOG_VERBOSE, "Sending ID_SCRIPT_GLOBAL_SHORT\n- varName: %s\n- shortVal: %i",
+                worldObject.varName.c_str(),
+                worldObject.shortVal);
+        }
+
         MWBase::Environment::get().getWorld()->setGlobalInt (name, value);
     }
 
@@ -477,36 +554,13 @@ namespace MWScript
         return static_cast<float>(std::sqrt(diff[0] * diff[0] + diff[1] * diff[1] + diff[2] * diff[2]));
     }
 
-    bool InterpreterContext::hasBeenActivated (const MWWorld::Ptr& ptr)
-    {
-        if (!mActivated.isEmpty() && mActivated==ptr)
-        {
-            mActivationHandled = true;
-            return true;
-        }
-
-        return false;
-    }
-
-    bool InterpreterContext::hasActivationBeenHandled() const
-    {
-        return mActivationHandled;
-    }
-
-    void InterpreterContext::activate (const MWWorld::Ptr& ptr)
-    {
-        mActivated = ptr;
-        mActivationHandled = false;
-    }
-
     void InterpreterContext::executeActivation(MWWorld::Ptr ptr, MWWorld::Ptr actor)
     {
         boost::shared_ptr<MWWorld::Action> action = (ptr.getClass().activate(ptr, actor));
         action->execute (actor);
-        if (mActivated == ptr)
+        if (action->getTarget() != MWWorld::Ptr() && action->getTarget() != ptr)
         {
-            mActivationHandled = true;
-            mActivated = MWWorld::Ptr();
+            updatePtr(ptr, action->getTarget());
         }
     }
 
@@ -570,7 +624,29 @@ namespace MWScript
 
         Locals& locals = getMemberLocals (scriptId, global);
 
-        locals.mShorts[findLocalVariableIndex (scriptId, name, 's')] = value;
+        // Added by tes3mp so it can be reused by it
+        int index = findLocalVariableIndex(scriptId, name, 's');
+
+        locals.mShorts[index] = value;
+
+        // Added by tes3mp
+        if (sendPackets && !global)
+        {
+            mwmp::WorldEvent *worldEvent = mwmp::Main::get().getNetworking()->resetWorldEvent();
+
+            mwmp::WorldObject worldObject;
+            worldObject.refId = id;
+            worldObject.index = index;
+            worldObject.shortVal = value;
+            worldEvent->addObject(worldObject);
+
+            mwmp::Main::get().getNetworking()->getWorldPacket(ID_SCRIPT_MEMBER_SHORT)->Send(worldEvent);
+
+            LOG_MESSAGE_SIMPLE(Log::LOG_VERBOSE, "Sending ID_SCRIPT_MEMBER_SHORT\n- cellRef: %s\n- index: %i\n- shortVal: %i",
+                worldObject.refId.c_str(),
+                worldObject.index,
+                worldObject.shortVal);
+        }
     }
 
     void InterpreterContext::setMemberLong (const std::string& id, const std::string& name, int value, bool global)
@@ -604,6 +680,10 @@ namespace MWScript
     void InterpreterContext::updatePtr(const MWWorld::Ptr& base, const MWWorld::Ptr& updated)
     {
         if (!mReference.isEmpty() && base == mReference)
+        {
             mReference = updated;
+            if (mLocals == &base.getRefData().getLocals())
+                mLocals = &mReference.getRefData().getLocals();
+        }
     }
 }

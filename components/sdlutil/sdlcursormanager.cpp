@@ -3,6 +3,7 @@
 #include <cassert>
 #include <stdexcept>
 #include <iostream>
+#include <cstdlib>
 
 #include <SDL_mouse.h>
 #include <SDL_endian.h>
@@ -81,6 +82,8 @@ namespace
 
     osg::ref_ptr<osg::Image> decompress (osg::ref_ptr<osg::Image> source, float rotDegrees)
     {
+        // TODO: use software decompression once S3TC patent expires
+
         int width = source->s();
         int height = source->t();
 
@@ -130,9 +133,13 @@ namespace
         osg::ref_ptr<osg::Geometry> geom;
 
 #if defined(__APPLE__)
-        // Extra flip needed on Intel graphics OS X systems due to a driver bug
+        // Extra flip needed on OS X systems due to a driver bug
+        const char* envval = getenv("OPENMW_CURSOR_WORKAROUND");
+        bool workaround = !envval || envval == std::string("1");
         std::string vendorString = (const char*)glGetString(GL_VENDOR);
-        if (vendorString.find("Intel") != std::string::npos)
+        if (!envval)
+            workaround = vendorString.find("Intel") != std::string::npos || vendorString.find("ATI") != std::string::npos || vendorString.find("AMD") != std::string::npos;
+        if (workaround)
             geom = osg::createTexturedQuadGeometry(osg::Vec3(-1,1,0), osg::Vec3(2,0,0), osg::Vec3(0,-2,0));
         else
 #endif
@@ -211,12 +218,12 @@ namespace SDLUtil
         SDL_SetCursor(mCursorMap.find(name)->second);
     }
 
-    void SDLCursorManager::createCursor(const std::string& name, int rotDegrees, osg::Image* image, Uint8 size_x, Uint8 size_y, Uint8 hotspot_x, Uint8 hotspot_y)
+    void SDLCursorManager::createCursor(const std::string& name, int rotDegrees, osg::Image* image, Uint8 hotspot_x, Uint8 hotspot_y)
     {
-        _createCursorFromResource(name, rotDegrees, image, size_x, size_y, hotspot_x, hotspot_y);
+        _createCursorFromResource(name, rotDegrees, image, hotspot_x, hotspot_y);
     }
 
-    void SDLCursorManager::_createCursorFromResource(const std::string& name, int rotDegrees, osg::Image* image, Uint8 size_x, Uint8 size_y, Uint8 hotspot_x, Uint8 hotspot_y)
+    void SDLCursorManager::_createCursorFromResource(const std::string& name, int rotDegrees, osg::Image* image, Uint8 hotspot_x, Uint8 hotspot_y)
     {
         osg::ref_ptr<osg::Image> decompressed;
 
@@ -239,8 +246,6 @@ namespace SDLUtil
 
         //clean up
         SDL_FreeSurface(surf);
-
-        _setGUICursor(name);
     }
 
 }

@@ -3,6 +3,13 @@
 #include <stdexcept>
 #include <limits>
 
+#include "../mwmp/Main.hpp"
+#include "../mwmp/Networking.hpp"
+#include "../mwmp/WorldEvent.hpp"
+
+#include "../mwworld/cellstore.hpp"
+#include "../mwworld/class.hpp"
+
 #include <components/compiler/extensions.hpp>
 #include <components/compiler/opcodes.hpp>
 
@@ -56,7 +63,23 @@ namespace MWScript
                             throw std::runtime_error ("animation mode out of range");
                     }
 
-                    MWBase::Environment::get().getMechanicsManager()->playAnimationGroup (ptr, group, mode, std::numeric_limits<int>::max());
+                    // Added by tes3mp to check and set whether packets should be sent about this script
+                    if (mwmp::Main::isValidPacketScript(ptr.getClass().getScript(ptr)))
+                    {
+                        mwmp::WorldEvent *worldEvent = mwmp::Main::get().getNetworking()->resetWorldEvent();
+                        worldEvent->cell = *ptr.getCell()->getCell();
+
+                        mwmp::WorldObject worldObject;
+                        worldObject.refId = ptr.getCellRef().getRefId();
+                        worldObject.refNumIndex = ptr.getCellRef().getRefNum().mIndex;
+                        worldObject.animGroup = group;
+                        worldObject.animMode = mode;
+                        worldEvent->addObject(worldObject);
+
+                        mwmp::Main::get().getNetworking()->getWorldPacket(ID_OBJECT_ANIM_PLAY)->Send(worldEvent);
+                    }
+
+                    MWBase::Environment::get().getMechanicsManager()->playAnimationGroup (ptr, group, mode, std::numeric_limits<int>::max(), true);
                }
         };
 
@@ -89,7 +112,7 @@ namespace MWScript
                             throw std::runtime_error ("animation mode out of range");
                     }
 
-                    MWBase::Environment::get().getMechanicsManager()->playAnimationGroup (ptr, group, mode, loops);
+                    MWBase::Environment::get().getMechanicsManager()->playAnimationGroup (ptr, group, mode, loops + 1, true);
                }
         };
         

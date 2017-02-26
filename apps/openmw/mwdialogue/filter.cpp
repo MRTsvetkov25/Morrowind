@@ -62,7 +62,15 @@ bool MWDialogue::Filter::testActor (const ESM::DialInfo& info) const
     }
 
     // NPC faction
-    if (!info.mFaction.empty())
+    if (info.mFactionLess)
+    {
+        if (isCreature)
+            return true;
+
+        if (!mActor.getClass().getPrimaryFaction(mActor).empty())
+            return false;
+    }
+    else if (!info.mFaction.empty())
     {
         if (isCreature)
             return true;
@@ -99,12 +107,24 @@ bool MWDialogue::Filter::testActor (const ESM::DialInfo& info) const
 bool MWDialogue::Filter::testPlayer (const ESM::DialInfo& info) const
 {
     const MWWorld::Ptr player = MWMechanics::getPlayer();
+    MWMechanics::NpcStats& stats = player.getClass().getNpcStats (player);
 
-    // check player faction
+    // check player faction and rank
     if (!info.mPcFaction.empty())
     {
-        MWMechanics::NpcStats& stats = player.getClass().getNpcStats (player);
         std::map<std::string,int>::const_iterator iter = stats.getFactionRanks().find (Misc::StringUtils::lowerCase (info.mPcFaction));
+
+        if(iter==stats.getFactionRanks().end())
+            return false;
+
+        // check rank
+        if (iter->second < info.mData.mPCrank)
+            return false;
+    }
+    else if (info.mData.mPCrank != -1)
+    {
+        // required PC faction is not specified but PC rank is; use speaker's faction
+        std::map<std::string,int>::const_iterator iter = stats.getFactionRanks().find (Misc::StringUtils::lowerCase (mActor.getClass().getPrimaryFaction(mActor)));
 
         if(iter==stats.getFactionRanks().end())
             return false;
@@ -145,11 +165,43 @@ bool MWDialogue::Filter::testDisposition (const ESM::DialInfo& info, bool invert
     if (isCreature)
         return true;
 
-    int actorDisposition = MWBase::Environment::get().getMechanicsManager()->getDerivedDisposition(mActor)
-            + MWBase::Environment::get().getDialogueManager()->getTemporaryDispositionChange();
+    int actorDisposition = MWBase::Environment::get().getMechanicsManager()->getDerivedDisposition(mActor);
     // For service refusal, the disposition check is inverted. However, a value of 0 still means "always succeed".
     return invert ? (info.mData.mDisposition == 0 || actorDisposition < info.mData.mDisposition)
                   : (actorDisposition >= info.mData.mDisposition);
+}
+
+bool MWDialogue::Filter::testFunctionLocal(const MWDialogue::SelectWrapper& select) const
+{
+    std::string scriptName = mActor.getClass().getScript (mActor);
+
+    if (scriptName.empty())
+        return false; // no script
+
+    std::string name = Misc::StringUtils::lowerCase (select.getName());
+
+    const Compiler::Locals& localDefs =
+        MWBase::Environment::get().getScriptManager()->getLocals (scriptName);
+
+    char type = localDefs.getType (name);
+
+    if (type==' ')
+        return false; // script does not have a variable of this name.
+
+    int index = localDefs.getIndex (name);
+    if (index < 0)
+        return false; // shouldn't happen, we checked that variable has a type above, so must exist
+
+    const MWScript::Locals& locals = mActor.getRefData().getLocals();
+
+    switch (type)
+    {
+        case 's': return select.selectCompare (static_cast<int> (locals.mShorts[index]));
+        case 'l': return select.selectCompare (locals.mLongs[index]);
+        case 'f': return select.selectCompare (locals.mFloats[index]);
+    }
+
+    throw std::logic_error ("unknown local variable type in dialogue filter");
 }
 
 bool MWDialogue::Filter::testSelectStruct (const SelectWrapper& select) const
@@ -160,6 +212,11 @@ bool MWDialogue::Filter::testSelectStruct (const SelectWrapper& select) const
 
     if (select.getFunction() == SelectWrapper::Function_Choice && mChoice == -1)
         // If not currently in a choice, we reject all conditions that test against choices.
+        return false;
+
+    if (select.getFunction() == SelectWrapper::Function_Weather && !(MWBase::Environment::get().getWorld()->isCellExterior() || MWBase::Environment::get().getWorld()->isCellQuasiExterior()))
+        // Reject weather conditions in interior cells
+        // Note that the original engine doesn't include the "|| isCellQuasiExterior()" check, which could be considered a bug.
         return false;
 
     switch (select.getType())
@@ -188,35 +245,12 @@ bool MWDialogue::Filter::testSelectStructNumeric (const SelectWrapper& select) c
 
         case SelectWrapper::Function_Local:
         {
-            std::string scriptName = mActor.getClass().getScript (mActor);
+            return testFunctionLocal(select);
+        }
 
-            if (scriptName.empty())
-                return false; // no script
-
-            std::string name = Misc::StringUtils::lowerCase (select.getName());
-
-            const Compiler::Locals& localDefs =
-                MWBase::Environment::get().getScriptManager()->getLocals (scriptName);
-
-            char type = localDefs.getType (name);
-
-            if (type==' ')
-                return false; // script does not have a variable of this name.
-
-            int index = localDefs.getIndex (name);
-            if (index < 0)
-                return false; // shouldn't happen, we checked that variable has a type above, so must exist
-
-            const MWScript::Locals& locals = mActor.getRefData().getLocals();
-
-            switch (type)
-            {
-                case 's': return select.selectCompare (static_cast<int> (locals.mShorts[index]));
-                case 'l': return select.selectCompare (locals.mLongs[index]);
-                case 'f': return select.selectCompare (locals.mFloats[index]);
-            }
-
-            throw std::logic_error ("unknown local variable type in dialogue filter");
+        case SelectWrapper::Function_NotLocal:
+        {
+            return !testFunctionLocal(select);
         }
 
         case SelectWrapper::Function_PcHealthPercent:
@@ -459,20 +493,6 @@ bool MWDialogue::Filter::getSelectStructBoolean (const SelectWrapper& select) co
 
             return !Misc::StringUtils::ciEqual(MWBase::Environment::get().getWorld()->getCellName(mActor.getCell())
                                                , select.getName());
-
-        case SelectWrapper::Function_NotLocal:
-        {
-            std::string scriptName = mActor.getClass().getScript (mActor);
-
-            if (scriptName.empty())
-                // This actor has no attached script, so there is no local variable
-                return true;
-
-            const Compiler::Locals& localDefs =
-                MWBase::Environment::get().getScriptManager()->getLocals (scriptName);
-
-            return localDefs.getIndex (Misc::StringUtils::lowerCase (select.getName()))==-1;
-        }
 
         case SelectWrapper::Function_SameGender:
 

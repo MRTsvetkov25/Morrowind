@@ -2,6 +2,10 @@
 
 #include <cstdlib>
 
+#include "../mwmp/Main.hpp"
+#include "../mwmp/Networking.hpp"
+#include "../mwmp/WorldEvent.hpp"
+
 #include <components/compiler/extensions.hpp>
 #include <components/compiler/opcodes.hpp>
 #include <components/compiler/locals.hpp>
@@ -85,6 +89,16 @@ namespace MWScript
                 bool allowSkipping = runtime[0].mInteger != 0;
                 runtime.pop();
 
+                // Added by tes3mp
+                mwmp::WorldEvent *worldEvent = mwmp::Main::get().getNetworking()->resetWorldEvent();
+
+                mwmp::WorldObject worldObject;
+                worldObject.filename = name;
+                worldObject.allowSkipping = allowSkipping;
+                worldEvent->addObject(worldObject);
+
+                mwmp::Main::get().getNetworking()->getWorldPacket(ID_VIDEO_PLAY)->Send(worldEvent);
+
                 MWBase::Environment::get().getWindowManager()->playVideo (name, allowSkipping);
             }
         };
@@ -142,7 +156,7 @@ namespace MWScript
 
                     MWWorld::Ptr ptr = context.getReference();
 
-                    runtime.push (context.hasBeenActivated (ptr));
+                    runtime.push (ptr.getRefData().onActivate());
                 }
         };
 
@@ -158,7 +172,8 @@ namespace MWScript
 
                     MWWorld::Ptr ptr = R()(runtime);
 
-                    context.executeActivation(ptr, MWMechanics::getPlayer());
+                    if (ptr.getRefData().activateByScript())
+                        context.executeActivation(ptr, MWMechanics::getPlayer());
                 }
         };
 
@@ -181,6 +196,18 @@ namespace MWScript
                         lockLevel = runtime[0].mInteger;
                         runtime.pop();
                     }
+
+                    // Added by tes3mp
+                    mwmp::WorldEvent *worldEvent = mwmp::Main::get().getNetworking()->resetWorldEvent();
+                    worldEvent->cell = *ptr.getCell()->getCell();
+
+                    mwmp::WorldObject worldObject;
+                    worldObject.refId = ptr.getCellRef().getRefId();
+                    worldObject.refNumIndex = ptr.getCellRef().getRefNum().mIndex;
+                    worldObject.lockLevel = lockLevel;
+                    worldEvent->addObject(worldObject);
+
+                    mwmp::Main::get().getNetworking()->getWorldPacket(ID_OBJECT_LOCK)->Send(worldEvent);
 
                     ptr.getClass().lock (ptr, lockLevel);
 
@@ -208,6 +235,17 @@ namespace MWScript
                 {
                     MWWorld::Ptr ptr = R()(runtime);
 
+                    // Added by tes3mp
+                    mwmp::WorldEvent *worldEvent = mwmp::Main::get().getNetworking()->resetWorldEvent();
+                    worldEvent->cell = *ptr.getCell()->getCell();
+
+                    mwmp::WorldObject worldObject;
+                    worldObject.refId = ptr.getCellRef().getRefId();
+                    worldObject.refNumIndex = ptr.getCellRef().getRefNum().mIndex;
+                    worldEvent->addObject(worldObject);
+
+                    mwmp::Main::get().getNetworking()->getWorldPacket(ID_OBJECT_UNLOCK)->Send(worldEvent);
+
                     ptr.getClass().unlock (ptr);
                 }
         };
@@ -234,10 +272,10 @@ namespace MWScript
                 virtual void execute (Interpreter::Runtime& runtime)
                 {
                     bool enabled =
-                        MWBase::Environment::get().getWorld()->toggleRenderMode (MWRender::Render_BoundingBoxes);
+                        MWBase::Environment::get().getWorld()->toggleRenderMode (MWRender::Render_CollisionDebug);
 
                     runtime.getContext().report (enabled ?
-                        "Bounding Box Rendering -> On" : "Bounding Box Rendering -> Off");
+                        "Collision Mesh Rendering -> On" : "Collision Mesh Rendering -> Off");
                 }
         };
 
@@ -667,7 +705,20 @@ namespace MWScript
                     runtime.pop();
 
                     if (parameter == 1)
+                    {
+                        // Added by tes3mp
+                        mwmp::WorldEvent *worldEvent = mwmp::Main::get().getNetworking()->resetWorldEvent();
+                        worldEvent->cell = *ptr.getCell()->getCell();
+
+                        mwmp::WorldObject worldObject;
+                        worldObject.refId = ptr.getCellRef().getRefId();
+                        worldObject.refNumIndex = ptr.getCellRef().getRefNum().mIndex;
+                        worldEvent->addObject(worldObject);
+
+                        mwmp::Main::get().getNetworking()->getWorldPacket(ID_OBJECT_DELETE)->Send(worldEvent);
+
                         MWBase::Environment::get().getWorld()->deleteObject(ptr);
+                    }
                     else if (parameter == 0)
                         MWBase::Environment::get().getWorld()->undeleteObject(ptr);
                     else
@@ -846,6 +897,70 @@ namespace MWScript
                     MWBase::World *world = MWBase::Environment::get().getWorld();
                     world->enableLevitation(Enable);
                 }
+        };
+
+        template <class R>
+        class OpShow : public Interpreter::Opcode0
+        {
+        public:
+
+            virtual void execute (Interpreter::Runtime& runtime)
+            {
+                MWWorld::Ptr ptr = R()(runtime, false);
+                std::string var = runtime.getStringLiteral(runtime[0].mInteger);
+                runtime.pop();
+
+                std::stringstream output;
+
+                if (!ptr.isEmpty())
+                {
+                    const std::string& script = ptr.getClass().getScript(ptr);
+                    if (script.empty())
+                    {
+                        output << ptr.getCellRef().getRefId() << " has no script " << std::endl;
+                    }
+                    else
+                    {
+                        const Compiler::Locals& locals =
+                            MWBase::Environment::get().getScriptManager()->getLocals(script);
+                        char type = locals.getType(var);
+                        switch (type)
+                        {
+                        case 'l':
+                        case 's':
+                            output << ptr.getCellRef().getRefId() << "." << var << ": " << ptr.getRefData().getLocals().getIntVar(script, var);
+                            break;
+                        case 'f':
+                            output << ptr.getCellRef().getRefId() << "." << var << ": " << ptr.getRefData().getLocals().getFloatVar(script, var);
+                            break;
+                        default:
+                            output << "unknown local '" << var << "' for '" << ptr.getCellRef().getRefId() << "'";
+                            break;
+                        }
+                    }
+                }
+                else
+                {
+                    MWBase::World *world = MWBase::Environment::get().getWorld();
+                    char type = world->getGlobalVariableType (var);
+
+                    switch (type)
+                    {
+                    case 's':
+                        output << runtime.getContext().getGlobalShort (var);
+                        break;
+                    case 'l':
+                        output << runtime.getContext().getGlobalLong (var);
+                        break;
+                    case 'f':
+                        output << runtime.getContext().getGlobalFloat (var);
+                        break;
+                    default:
+                        output << "unknown global variable";
+                    }
+                }
+                runtime.getContext().report(output.str());
+            }
         };
 
         template <class R>
@@ -1187,6 +1302,31 @@ namespace MWScript
             }
         };
 
+        template <class R>
+        class OpShowSceneGraph : public Interpreter::Opcode1
+        {
+        public:
+            virtual void execute(Interpreter::Runtime &runtime, unsigned int arg0)
+            {
+                MWWorld::Ptr ptr = R()(runtime, false);
+
+                int confirmed = 0;
+                if (arg0==1)
+                {
+                    confirmed = runtime[0].mInteger;
+                    runtime.pop();
+                }
+
+                if (ptr.isEmpty() && !confirmed)
+                    runtime.getContext().report("Exporting the entire scene graph will result in a large file. Confirm this action using 'showscenegraph 1' or select an object instead.");
+                else
+                {
+                    const std::string& filename = MWBase::Environment::get().getWorld()->exportSceneGraph(ptr);
+                    runtime.getContext().report("Wrote '" + filename + "'");
+                }
+            }
+        };
+
         void installOpcodes (Interpreter::Interpreter& interpreter)
         {
             interpreter.installSegment5 (Compiler::Misc::opcodeXBox, new OpXBox);
@@ -1265,6 +1405,8 @@ namespace MWScript
             interpreter.installSegment5 (Compiler::Misc::opcodeEnableTeleporting, new OpEnableTeleporting<true>);
             interpreter.installSegment5 (Compiler::Misc::opcodeShowVars, new OpShowVars<ImplicitRef>);
             interpreter.installSegment5 (Compiler::Misc::opcodeShowVarsExplicit, new OpShowVars<ExplicitRef>);
+            interpreter.installSegment5 (Compiler::Misc::opcodeShow, new OpShow<ImplicitRef>);
+            interpreter.installSegment5 (Compiler::Misc::opcodeShowExplicit, new OpShow<ExplicitRef>);
             interpreter.installSegment5 (Compiler::Misc::opcodeToggleGodMode, new OpToggleGodMode);
             interpreter.installSegment5 (Compiler::Misc::opcodeToggleScripts, new OpToggleScripts);
             interpreter.installSegment5 (Compiler::Misc::opcodeDisableLevitation, new OpEnableLevitation<false>);
@@ -1281,6 +1423,8 @@ namespace MWScript
             interpreter.installSegment5 (Compiler::Misc::opcodeRemoveFromLevCreature, new OpRemoveFromLevCreature);
             interpreter.installSegment5 (Compiler::Misc::opcodeAddToLevItem, new OpAddToLevItem);
             interpreter.installSegment5 (Compiler::Misc::opcodeRemoveFromLevItem, new OpRemoveFromLevItem);
+            interpreter.installSegment3 (Compiler::Misc::opcodeShowSceneGraph, new OpShowSceneGraph<ImplicitRef>);
+            interpreter.installSegment3 (Compiler::Misc::opcodeShowSceneGraphExplicit, new OpShowSceneGraph<ExplicitRef>);
         }
     }
 }

@@ -12,6 +12,7 @@
 class btCollisionWorld;
 class btCollisionShape;
 class btCollisionObject;
+class btConvexShape;
 
 namespace Resource
 {
@@ -61,6 +62,8 @@ namespace MWPhysics
             return mInternalCollisionMode;
         }
 
+        btConvexShape* getConvexShape() const { return mConvexShape; }
+
         /**
          * Enables or disables the *external* collision body. If disabled, other actors will not collide with this actor.
          */
@@ -68,7 +71,19 @@ namespace MWPhysics
 
         void updateScale();
         void updateRotation();
+
+        /**
+         * Return true if the collision shape looks the same no matter how its Z rotated.
+         */
+        bool isRotationallyInvariant() const;
+
+        /**
+         * Set mPosition and mPreviousPosition to the position in the Ptr's RefData. This should be used
+         * when an object is "instantly" moved/teleported as opposed to being moved by the physics simulation.
+         */
         void updatePosition();
+
+        void updateCollisionObjectPosition();
 
         /**
          * Returns the half extents of the collision body (scaled according to collision scale)
@@ -79,7 +94,16 @@ namespace MWPhysics
          * Returns the position of the collision body
          * @note The collision shape's origin is in its center, so the position returned can be described as center of the actor collision box in world space.
          */
+        osg::Vec3f getCollisionObjectPosition() const;
+
+        /**
+          * Store the current position into mPreviousPosition, then move to this position.
+          */
+        void setPosition(const osg::Vec3f& position);
+
         osg::Vec3f getPosition() const;
+
+        osg::Vec3f getPreviousPosition() const;
 
         /**
          * Returns the half extents of the collision body (scaled according to rendering scale)
@@ -108,6 +132,13 @@ namespace MWPhysics
             return mInternalCollisionMode && mOnGround;
         }
 
+        void setOnSlope(bool slope);
+
+        bool getOnSlope() const
+        {
+            return mInternalCollisionMode && mOnSlope;
+        }
+
         btCollisionObject* getCollisionObject() const
         {
             return mCollisionObject.get();
@@ -123,11 +154,16 @@ namespace MWPhysics
     private:
         /// Removes then re-adds the collision object to the dynamics world
         void updateCollisionMask();
+        void addCollisionMask(int collisionMask);
+        int getCollisionMask();
 
         bool mCanWaterWalk;
         bool mWalkingOnWater;
 
+        bool mRotationallyInvariant;
+
         std::auto_ptr<btCollisionShape> mShape;
+        btConvexShape* mConvexShape;
 
         std::auto_ptr<btCollisionObject> mCollisionObject;
 
@@ -138,9 +174,11 @@ namespace MWPhysics
         osg::Vec3f mScale;
         osg::Vec3f mRenderingScale;
         osg::Vec3f mPosition;
+        osg::Vec3f mPreviousPosition;
 
         osg::Vec3f mForce;
         bool mOnGround;
+        bool mOnSlope;
         bool mInternalCollisionMode;
         bool mExternalCollisionMode;
 

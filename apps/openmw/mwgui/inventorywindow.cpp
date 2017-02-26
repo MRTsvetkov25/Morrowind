@@ -16,6 +16,12 @@
 
 #include <components/settings/settings.hpp>
 
+#include "../mwmp/Main.hpp"
+#include "../mwmp/Networking.hpp"
+#include "../mwmp/WorldEvent.hpp"
+#include "../mwmp/LocalPlayer.hpp"
+#include "../mwworld/cellstore.hpp"
+
 #include "../mwbase/world.hpp"
 #include "../mwbase/environment.hpp"
 #include "../mwbase/soundmanager.hpp"
@@ -56,7 +62,7 @@ namespace
 namespace MWGui
 {
 
-    InventoryWindow::InventoryWindow(DragAndDrop* dragAndDrop, osgViewer::Viewer* viewer, Resource::ResourceSystem* resourceSystem)
+    InventoryWindow::InventoryWindow(DragAndDrop* dragAndDrop, osg::Group* parent, Resource::ResourceSystem* resourceSystem)
         : WindowPinnableBase("openmw_inventory_window.layout")
         , mDragAndDrop(dragAndDrop)
         , mSelectedItem(-1)
@@ -65,7 +71,7 @@ namespace MWGui
         , mGuiMode(GM_Inventory)
         , mLastXSize(0)
         , mLastYSize(0)
-        , mPreview(new MWRender::InventoryPreview(viewer, resourceSystem, MWMechanics::getPlayer()))
+        , mPreview(new MWRender::InventoryPreview(parent, resourceSystem, MWMechanics::getPlayer()))
         , mTrading(false)
     {
         mPreviewTexture.reset(new osgMyGUI::OSGTexture(mPreview->getTexture()));
@@ -545,10 +551,7 @@ namespace MWGui
         if(invStore.getSlot(slot) != invStore.end())
         {
             MWWorld::Ptr item = *invStore.getSlot(slot);
-            // NOTE: Don't allow users to select WerewolfRobe objects in the inventory. Vanilla
-            // likely uses a hack like this since there's no other way to prevent it from being
-            // taken.
-            if(item.getCellRef().getRefId() == "werewolfrobe")
+            if (!item.getClass().showsInInventory(item))
                 return MWWorld::Ptr();
             return item;
         }
@@ -631,6 +634,21 @@ namespace MWGui
         // add to player inventory
         // can't use ActionTake here because we need an MWWorld::Ptr to the newly inserted object
         MWWorld::Ptr newObject = *player.getClass().getContainerStore (player).add (object, object.getRefData().getCount(), player);
+
+        // Added by tes3mp
+        mwmp::WorldEvent *worldEvent = mwmp::Main::get().getNetworking()->resetWorldEvent();
+        worldEvent->cell = *object.getCell()->getCell();
+
+        mwmp::WorldObject worldObject;
+        worldObject.refId = object.getCellRef().getRefId();
+        worldObject.refNumIndex = object.getCellRef().getRefNum().mIndex;
+        worldEvent->addObject(worldObject);
+
+        mwmp::Main::get().getNetworking()->getWorldPacket(ID_OBJECT_DELETE)->Send(worldEvent);
+
+        // LocalPlayer's inventory has changed, so send a packet with it
+        mwmp::Main::get().getLocalPlayer()->sendInventory();
+
         // remove from world
         MWBase::Environment::get().getWorld()->deleteObject (object);
 

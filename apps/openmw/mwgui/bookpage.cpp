@@ -157,7 +157,7 @@ struct TypesetBookImpl : TypesetBook
     StyleImpl * hitTestWithMargin (int left, int top)
     {
         StyleImpl * hit = hitTest(left, top);
-        if (hit && hit->mInteractiveId > 0)
+        if (hit && hit->mInteractiveId != 0)
             return hit;
 
         const int maxMargin = 10;
@@ -174,7 +174,7 @@ struct TypesetBookImpl : TypesetBook
                 else
                     hit = hitTest(left+margin, top);
 
-                if (hit && hit->mInteractiveId > 0)
+                if (hit && hit->mInteractiveId != 0)
                     return hit;
             }
         }
@@ -275,9 +275,12 @@ struct TypesetBookImpl::Typesetter : BookTypesetter
             if (i->match (fontName, fontColour, fontColour, fontColour, 0))
                 return &*i;
 
-        StyleImpl & style = *mBook->mStyles.insert (mBook->mStyles.end (), StyleImpl ());
+        MyGUI::IFont* font = MyGUI::FontManager::getInstance().getByName(fontName);
+        if (!font)
+            throw std::runtime_error(std::string("can't find font ") + fontName);
 
-        style.mFont = MyGUI::FontManager::getInstance().getByName(fontName);
+        StyleImpl & style = *mBook->mStyles.insert (mBook->mStyles.end (), StyleImpl ());
+        style.mFont = font;
         style.mHotColour = fontColour;
         style.mActiveColour = fontColour;
         style.mNormalColour = fontColour;
@@ -1252,72 +1255,65 @@ class BookPageImpl : public BookPage
 MYGUI_RTTI_DERIVED(BookPage)
 public:
 
+    BookPageImpl()
+        : mPageDisplay(NULL)
+    {
+    }
+
     void showPage (TypesetBook::Ptr book, size_t page)
     {
-        if (PageDisplay* pd = dynamic_cast <PageDisplay*> (getSubWidgetText ()))
-            pd->showPage (book, page);
-        else
-            throw std::runtime_error ("The main sub-widget for a BookPage must be a PageDisplay.");
+        mPageDisplay->showPage (book, page);
     }
 
     void adviseLinkClicked (boost::function <void (InteractiveId)> linkClicked)
     {
-        if (PageDisplay* pd = dynamic_cast <PageDisplay*> (getSubWidgetText ()))
-        {
-            pd->mLinkClicked = linkClicked;
-        }
+        mPageDisplay->mLinkClicked = linkClicked;
     }
 
     void unadviseLinkClicked ()
     {
-        if (PageDisplay* pd = dynamic_cast <PageDisplay*> (getSubWidgetText ()))
-        {
-            pd->mLinkClicked = boost::function <void (InteractiveId)> ();
-        }
+        mPageDisplay->mLinkClicked = boost::function <void (InteractiveId)> ();
     }
 
 protected:
+
+    virtual void initialiseOverride()
+    {
+        Base::initialiseOverride();
+
+        if (getSubWidgetText())
+        {
+            mPageDisplay = getSubWidgetText()->castType<PageDisplay>();
+        }
+        else
+        {
+            throw std::runtime_error("BookPage unable to find page display sub widget");
+        }
+    }
+
     void onMouseLostFocus(Widget* _new)
     {
         // NOTE: MyGUI also fires eventMouseLostFocus for widgets that are about to be destroyed (if they had focus).
         // Child widgets may already be destroyed! So be careful.
-        if (PageDisplay* pd = dynamic_cast <PageDisplay*> (getSubWidgetText ()))
-        {
-            pd->onMouseLostFocus ();
-        }
-        else
-            Widget::onMouseLostFocus (_new);
+        mPageDisplay->onMouseLostFocus ();
     }
 
     void onMouseMove(int left, int top)
     {
-        if (PageDisplay* pd = dynamic_cast <PageDisplay*> (getSubWidgetText ()))
-        {
-            pd->onMouseMove (left, top);
-        }
-        else
-            Widget::onMouseMove (left, top);
+        mPageDisplay->onMouseMove (left, top);
     }
 
     void onMouseButtonPressed (int left, int top, MyGUI::MouseButton id)
     {
-        if (PageDisplay* pd = dynamic_cast <PageDisplay*> (getSubWidgetText ()))
-        {
-            pd->onMouseButtonPressed (left, top, id);
-        }
-        else
-            Widget::onMouseButtonPressed (left, top, id);
+        mPageDisplay->onMouseButtonPressed (left, top, id);
     }
 
     void onMouseButtonReleased(int left, int top, MyGUI::MouseButton id)
     {
-        if (PageDisplay* pd = dynamic_cast <PageDisplay*> (getSubWidgetText ()))
-        {
-            pd->onMouseButtonReleased (left, top, id);
-        }
-        else
-            Widget::onMouseButtonReleased (left, top, id);
+        mPageDisplay->onMouseButtonReleased (left, top, id);
     }
+
+    PageDisplay* mPageDisplay;
 };
 
 void BookPage::registerMyGUIComponents ()

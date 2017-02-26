@@ -1,8 +1,9 @@
 #ifndef GAME_MWMECHANICS_PATHGRID_H
 #define GAME_MWMECHANICS_PATHGRID_H
 
-#include <components/esm/loadpgrd.hpp>
 #include <list>
+
+#include <components/esm/loadpgrd.hpp>
 
 namespace ESM
 {
@@ -29,7 +30,7 @@ namespace MWMechanics
 
             // the input parameters are pathgrid point indexes
             // the output list is in local (internal cells) or world (external
-            // cells) co-ordinates
+            // cells) coordinates
             //
             // NOTE: if start equals end an empty path is returned
             std::list<ESM::Pathgrid::Point> aStarSearch(const int start,

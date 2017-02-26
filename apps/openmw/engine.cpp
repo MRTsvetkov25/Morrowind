@@ -21,13 +21,17 @@
 
 #include <components/resource/resourcesystem.hpp>
 #include <components/resource/scenemanager.hpp>
+#include <components/resource/stats.hpp>
 
 #include <components/compiler/extensions0.hpp>
+
+#include <components/sceneutil/workqueue.hpp>
 
 #include <components/files/configurationmanager.hpp>
 #include <components/translation/translation.hpp>
 
 #include <components/version/version.hpp>
+#include <components/openmw-mp/Log.hpp>
 
 #include "mwinput/inputmanagerimp.hpp"
 
@@ -55,6 +59,9 @@
 
 #include "mwstate/statemanagerimp.hpp"
 
+#include "mwmp/Main.hpp"
+#include "mwmp/GUIController.hpp"
+
 namespace
 {
     void checkSDLError(int ret)
@@ -74,10 +81,15 @@ void OMW::Engine::executeLocalScripts()
     {
         MWScript::InterpreterContext interpreterContext (
             &script.second.getRefData().getLocals(), script.second);
+
+        // Added by tes3mp to check and set whether packets should be sent about this script
+        if (mwmp::Main::isValidPacketScript(script.first))
+        {
+            interpreterContext.sendPackets = true;
+        }
+
         mEnvironment.getScriptManager()->run (script.first, interpreterContext);
     }
-
-    localScripts.setIgnore (MWWorld::Ptr());
 }
 
 void OMW::Engine::frame(float frametime)
@@ -100,13 +112,17 @@ void OMW::Engine::frame(float frametime)
         if (mUseSound)
             mEnvironment.getSoundManager()->update(frametime);
 
+        mwmp::Main::frame(frametime);
+
         // Main menu opened? Then scripts are also paused.
-        bool paused = mEnvironment.getWindowManager()->containsMode(MWGui::GM_MainMenu);
+        bool paused = /*mEnvironment.getWindowManager()->containsMode(MWGui::GM_MainMenu);*/ false;
+        // The above is overridden by tes3mp, where the game should never be pausable
 
         // update game state
         mEnvironment.getStateManager()->update (frametime);
 
-        bool guiActive = mEnvironment.getWindowManager()->isGuiMode();
+        bool guiActive = /*mEnvironment.getWindowManager()->isGuiMode()*/ false;
+        // The above is overridden by tes3mp, where the Gui being active doesn't matter
 
         osg::Timer_t beforeScriptTick = osg::Timer::instance()->tick();
         if (mEnvironment.getStateManager()->getState()==
@@ -147,9 +163,9 @@ void OMW::Engine::frame(float frametime)
         if (mEnvironment.getStateManager()->getState()==
             MWBase::StateManager::State_Running)
         {
-            MWWorld::Ptr player = mEnvironment.getWorld()->getPlayerPtr();
+            /*MWWorld::Ptr player = mEnvironment.getWorld()->getPlayerPtr();
             if(!guiActive && player.getClass().getCreatureStats(player).isDead())
-                mEnvironment.getStateManager()->endGame();
+                mEnvironment.getStateManager()->endGame();*/
         }
 
         // update world
@@ -169,7 +185,7 @@ void OMW::Engine::frame(float frametime)
             mEnvironment.getWindowManager()->update();
         }
 
-        int frameNumber = mViewer->getFrameStamp()->getFrameNumber();
+        unsigned int frameNumber = mViewer->getFrameStamp()->getFrameNumber();
         osg::Stats* stats = mViewer->getViewerStats();
         stats->setAttribute(frameNumber, "script_time_begin", osg::Timer::instance()->delta_s(mStartTick, beforeScriptTick));
         stats->setAttribute(frameNumber, "script_time_taken", osg::Timer::instance()->delta_s(beforeScriptTick, afterScriptTick));
@@ -183,6 +199,14 @@ void OMW::Engine::frame(float frametime)
         stats->setAttribute(frameNumber, "physics_time_taken", osg::Timer::instance()->delta_s(beforePhysicsTick, afterPhysicsTick));
         stats->setAttribute(frameNumber, "physics_time_end", osg::Timer::instance()->delta_s(mStartTick, afterPhysicsTick));
 
+        if (stats->collectStats("resource"))
+        {
+            mResourceSystem->reportStats(frameNumber, stats);
+
+            stats->setAttribute(frameNumber, "WorkQueue", mWorkQueue->getNumItems());
+            stats->setAttribute(frameNumber, "WorkThread", mWorkQueue->getNumActiveThreads());
+        }
+
     }
     catch (const std::exception& e)
     {
@@ -194,7 +218,6 @@ OMW::Engine::Engine(Files::ConfigurationManager& configurationManager)
   : mWindow(NULL)
   , mEncoding(ToUTF8::WINDOWS_1252)
   , mEncoder(NULL)
-  , mVerboseScripts (false)
   , mSkipMenu (false)
   , mUseSound (true)
   , mCompileAll (false)
@@ -228,10 +251,15 @@ OMW::Engine::Engine(Files::ConfigurationManager& configurationManager)
 
 OMW::Engine::~Engine()
 {
+    mwmp::Main::get().getGUIController()->cleanUp();
     mEnvironment.cleanup();
+
+    mwmp::Main::destroy();
 
     delete mScriptContext;
     mScriptContext = NULL;
+
+    mWorkQueue = NULL;
 
     mResourceSystem.reset();
 
@@ -244,6 +272,9 @@ OMW::Engine::~Engine()
     }
 
     SDL_Quit();
+
+
+    LOG_QUIT();
 }
 
 void OMW::Engine::enableFSStrict(bool fsStrict)
@@ -280,11 +311,6 @@ void OMW::Engine::setCell (const std::string& cellName)
 void OMW::Engine::addContentFile(const std::string& file)
 {
     mContentFiles.push_back(file);
-}
-
-void OMW::Engine::setScriptsVerbosity(bool scriptsVerbosity)
-{
-    mVerboseScripts = scriptsVerbosity;
 }
 
 void OMW::Engine::setSkipMenu (bool skipMenu, bool newGame)
@@ -406,6 +432,8 @@ void OMW::Engine::createWindow(Settings::Manager& settings)
     camera->setViewport(0, 0, width, height);
 
     mViewer->realize();
+
+    mViewer->getEventQueue()->getCurrentEventState()->setWindowRectangle(0, 0, width, height);
 }
 
 void OMW::Engine::setWindowIcon()
@@ -453,9 +481,13 @@ void OMW::Engine::prepareEngine (Settings::Manager & settings)
         Settings::Manager::getString("texture mag filter", "General"),
         Settings::Manager::getString("texture min filter", "General"),
         Settings::Manager::getString("texture mipmap", "General"),
-        Settings::Manager::getInt("anisotropy", "General"),
-        NULL
+        Settings::Manager::getInt("anisotropy", "General")
     );
+
+    int numThreads = Settings::Manager::getInt("preload num threads", "Cells");
+    if (numThreads <= 0)
+        throw std::runtime_error("Invalid setting: 'preload num threads' must be >0");
+    mWorkQueue = new SceneUtil::WorkQueue(numThreads);
 
     // Create input and UI first to set up a bootstrapping environment for
     // showing a loading screen and keeping the window responsive while doing so
@@ -487,16 +519,17 @@ void OMW::Engine::prepareEngine (Settings::Manager & settings)
 
     std::string myguiResources = (mResDir / "mygui").string();
     osg::ref_ptr<osg::Group> guiRoot = new osg::Group;
+    guiRoot->setName("GUI Root");
     guiRoot->setNodeMask(MWRender::Mask_GUI);
     rootNode->addChild(guiRoot);
-    MWGui::WindowManager* window = new MWGui::WindowManager(mViewer, guiRoot, mResourceSystem.get(),
+    MWGui::WindowManager* window = new MWGui::WindowManager(mViewer, guiRoot, mResourceSystem.get(), mWorkQueue.get(),
                 mCfgMgr.getLogPath().string() + std::string("/"), myguiResources,
                 mScriptConsoleMode, mTranslationDataStorage, mEncoding, mExportFonts, mFallbackMap,
                 Version::getOpenmwVersionDescription(mResDir.string()));
     mEnvironment.setWindowManager (window);
 
     // Create sound system
-    mEnvironment.setSoundManager (new MWSound::SoundManager(mVFS.get(), mUseSound));
+    mEnvironment.setSoundManager (new MWSound::SoundManager(mVFS.get(), mFallbackMap, mUseSound));
 
     if (!mSkipMenu)
     {
@@ -506,9 +539,9 @@ void OMW::Engine::prepareEngine (Settings::Manager & settings)
     }
 
     // Create the world
-    mEnvironment.setWorld( new MWWorld::World (mViewer, rootNode, mResourceSystem.get(),
+    mEnvironment.setWorld( new MWWorld::World (mViewer, rootNode, mResourceSystem.get(), mWorkQueue.get(),
         mFileCollections, mContentFiles, mEncoder, mFallbackMap,
-        mActivationDistanceOverride, mCellName, mStartupScript, mResDir.string()));
+        mActivationDistanceOverride, mCellName, mStartupScript, mResDir.string(), mCfgMgr.getUserDataPath().string()));
     mEnvironment.getWorld()->setupPlayer();
     input->setPlayer(&mEnvironment.getWorld()->getPlayer());
 
@@ -527,8 +560,7 @@ void OMW::Engine::prepareEngine (Settings::Manager & settings)
     mScriptContext = new MWScript::CompilerContext (MWScript::CompilerContext::Type_Full);
     mScriptContext->setExtensions (&mExtensions);
 
-    mEnvironment.setScriptManager (new MWScript::ScriptManager (mEnvironment.getWorld()->getStore(),
-        mVerboseScripts, *mScriptContext, mWarningsMode,
+    mEnvironment.setScriptManager (new MWScript::ScriptManager (mEnvironment.getWorld()->getStore(), *mScriptContext, mWarningsMode,
         mScriptBlacklistUse ? mScriptBlacklist : std::vector<std::string>()));
 
     // Create game mechanics system
@@ -537,7 +569,7 @@ void OMW::Engine::prepareEngine (Settings::Manager & settings)
 
     // Create dialog system
     mEnvironment.setJournal (new MWDialogue::Journal);
-    mEnvironment.setDialogueManager (new MWDialogue::DialogueManager (mExtensions, mVerboseScripts, mTranslationDataStorage));
+    mEnvironment.setDialogueManager (new MWDialogue::DialogueManager (mExtensions, mTranslationDataStorage));
 
     // scripts
     if (mCompileAll)
@@ -615,8 +647,13 @@ private:
 void OMW::Engine::go()
 {
     assert (!mContentFiles.empty());
+    if(!mwmp::Main::init(mContentFiles))
+        return;
+
+    std::cout << "OSG version: " << osgGetVersion() << std::endl;
 
     mViewer = new osgViewer::Viewer;
+    mViewer->setReleaseContextAtEndOfFrameHint(false);
 
     osg::ref_ptr<osgViewer::StatsHandler> statshandler = new osgViewer::StatsHandler;
     statshandler->setKeyEventTogglesOnScreenStats(osgGA::GUIEventAdapter::KEY_F3);
@@ -629,6 +666,8 @@ void OMW::Engine::go()
                                    "physics_time_taken", 1000.0, true, false, "physics_time_begin", "physics_time_end", 10000);
 
     mViewer->addEventHandler(statshandler);
+
+    mViewer->addEventHandler(new Resource::StatsHandler);
 
     Settings::Manager settings;
     std::string settingspath;
@@ -644,6 +683,8 @@ void OMW::Engine::go()
     mEncoder = &encoder;
 
     prepareEngine (settings);
+    mwmp::Main::postInit();
+    mSkipMenu = true;
 
     if (!mSaveGameFile.empty())
     {
@@ -651,8 +692,6 @@ void OMW::Engine::go()
     }
     else if (!mSkipMenu)
     {
-        mEnvironment.getWorld()->preloadCommonAssets();
-
         // start in main menu
         mEnvironment.getWindowManager()->pushGuiMode (MWGui::GM_MainMenu);
         try
@@ -681,7 +720,9 @@ void OMW::Engine::go()
         frameTimer.setStartTick();
         dt = std::min(dt, 0.2);
 
-        bool guiActive = mEnvironment.getWindowManager()->isGuiMode();
+        bool guiActive = /*mEnvironment.getWindowManager()->isGuiMode()*/ false;
+        // The above is overridden by tes3mp, where the Gui being active doesn't matter
+
         if (!guiActive)
             simulationTime += dt;
 

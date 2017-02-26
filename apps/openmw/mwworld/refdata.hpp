@@ -2,6 +2,7 @@
 #define GAME_MWWORLD_REFDATA_H
 
 #include <components/esm/defs.hpp>
+#include <components/esm/animationstate.hpp>
 
 #include "../mwscript/locals.hpp"
 
@@ -42,6 +43,8 @@ namespace MWWorld
 
             ESM::Position mPosition;
 
+            ESM::AnimationState mAnimationState;
+
             CustomData *mCustomData;
 
             void copy (const RefData& refData);
@@ -49,6 +52,8 @@ namespace MWWorld
             void cleanup();
 
             bool mChanged;
+
+            unsigned int mFlags;
 
         public:
 
@@ -122,8 +127,17 @@ namespace MWWorld
 
             const CustomData *getCustomData() const;
 
+            bool activate();
+
+            bool onActivate();
+
+            bool activateByScript();
+
             bool hasChanged() const;
             ///< Has this RefData changed since it was originally loaded?
+
+            const ESM::AnimationState& getAnimationState() const;
+            ESM::AnimationState& getAnimationState();
     };
 }
 

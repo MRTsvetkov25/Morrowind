@@ -16,10 +16,15 @@
 namespace ESMTerrain
 {
 
-    const float defaultHeight = -2048;
+    const float defaultHeight = ESM::Land::DEFAULT_HEIGHT;
 
-    Storage::Storage(const VFS::Manager *vfs)
+    Storage::Storage(const VFS::Manager *vfs, const std::string& normalMapPattern, const std::string& normalHeightMapPattern, bool autoUseNormalMaps, const std::string& specularMapPattern, bool autoUseSpecularMaps)
         : mVFS(vfs)
+        , mNormalMapPattern(normalMapPattern)
+        , mNormalHeightMapPattern(normalHeightMapPattern)
+        , mAutoUseNormalMaps(autoUseNormalMaps)
+        , mSpecularMapPattern(specularMapPattern)
+        , mAutoUseSpecularMaps(autoUseSpecularMaps)
     {
     }
 
@@ -150,7 +155,7 @@ namespace ESMTerrain
                                             osg::ref_ptr<osg::Vec4Array> colours)
     {
         // LOD level n means every 2^n-th vertex is kept
-        size_t increment = 1 << lodLevel;
+        size_t increment = static_cast<size_t>(1) << lodLevel;
 
         osg::Vec2f origin = center - osg::Vec2f(size/2.f, size/2.f);
 
@@ -511,28 +516,34 @@ namespace ESMTerrain
         info.mParallax = false;
         info.mSpecular = false;
         info.mDiffuseMap = texture;
-        std::string texture_ = texture;
-        boost::replace_last(texture_, ".", "_nh.");
 
-        if (mVFS->exists(texture_))
+        if (mAutoUseNormalMaps)
         {
-            info.mNormalMap = texture_;
-            info.mParallax = true;
-        }
-        else
-        {
-            texture_ = texture;
-            boost::replace_last(texture_, ".", "_n.");
+            std::string texture_ = texture;
+            boost::replace_last(texture_, ".", mNormalHeightMapPattern + ".");
             if (mVFS->exists(texture_))
+            {
                 info.mNormalMap = texture_;
+                info.mParallax = true;
+            }
+            else
+            {
+                texture_ = texture;
+                boost::replace_last(texture_, ".", mNormalMapPattern + ".");
+                if (mVFS->exists(texture_))
+                    info.mNormalMap = texture_;
+            }
         }
 
-        texture_ = texture;
-        boost::replace_last(texture_, ".", "_diffusespec.");
-        if (mVFS->exists(texture_))
+        if (mAutoUseSpecularMaps)
         {
-            info.mDiffuseMap = texture_;
-            info.mSpecular = true;
+            std::string texture_ = texture;
+            boost::replace_last(texture_, ".", mSpecularMapPattern + ".");
+            if (mVFS->exists(texture_))
+            {
+                info.mDiffuseMap = texture_;
+                info.mSpecular = true;
+            }
         }
 
         mLayerInfoMap[texture] = info;
